@@ -1,0 +1,17 @@
+.tools/
+.cache/
+evidence/
+__pycache__/
+*.pyc
+reference/
+out/
+build/
+local-data/
+.archive/
+.venv/
+dist/
+*.egg-info/
+*.log
+*.dmp
+.env
+.env.*
