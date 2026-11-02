@@ -2,6 +2,7 @@
 
 mod catalog;
 mod native;
+mod release;
 mod verify;
 
 use anyhow::{Context, Result, bail};
@@ -22,6 +23,11 @@ Usage: cargo xtask <task>
         completing docs/ADAPTATION.md.
   verify
         Windows: run the host self-test and the controller against the WARP fixture.
+  release <x.y.z> [--push]
+        Set the workspace version, commit \"Release vX.Y.Z\", and tag it. Pushing the
+        tag makes CI build, verify and publish the GitHub release.
+  release-notes <vX.Y.Z>
+        Print the release body (used by CI); fails if the tag and version disagree.
 ";
 
 fn main() -> Result<()> {
@@ -36,6 +42,8 @@ fn main() -> Result<()> {
             None => bail!("build-id needs the game executable path"),
         },
         Some("verify") => verify::run(&root),
+        Some("release") => release::release(&root, &args[1..]),
+        Some("release-notes") => release::notes(&root, &args[1..]),
         _ => {
             print!("{USAGE}");
             Ok(())

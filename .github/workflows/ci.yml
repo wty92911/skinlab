@@ -55,3 +55,37 @@ jobs:
           path: |
             target/release/bundle/nsis/*.exe
             out/session/build-manifest.json
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rust, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: skinlab-windows
+          path: artifact
+      - name: Collect files
+        run: |
+          mkdir dist
+          cp artifact/target/release/bundle/nsis/*.exe dist/
+          cp artifact/out/session/build-manifest.json dist/native-build-manifest.json
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+      - name: Release notes
+        run: cargo xtask release-notes "$GITHUB_REF_NAME" > notes.md
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/* --title "SkinLab $GITHUB_REF_NAME" --notes-file notes.md --verify-tag "${flags[@]}"

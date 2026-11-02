@@ -45,6 +45,17 @@ cargo test --workspace
 
 CI（`.github/workflows/ci.yml`）在 Linux 上跑以上检查，在 Windows 上构建原生产物、运行 `cargo xtask verify` 并打包安装程序。
 
+## 发布
+
+版本号只在根 `Cargo.toml` 的 `[workspace.package]` 中维护，安装包沿用它。
+
+```bash
+cargo xtask release 0.5.0          # 改版本号、提交 “Release v0.5.0”、打 tag
+git push origin HEAD v0.5.0        # 或 cargo xtask release 0.5.0 --push
+```
+
+推送 `v*` tag 后，CI 在全部检查与 fixture 验证通过后创建 GitHub Release，附带安装包、`SHA256SUMS.txt` 和原生构建清单；说明由 `cargo xtask release-notes` 生成，列出适配的游戏版本、目录版本和自上个 tag 以来的提交。带 `-` 的版本（如 `0.5.0-rc.1`）标记为预发布。下载：<https://github.com/wty92911/skinlab/releases>
+
 ## 目录与适配
 
 目录的作用是把显示名称映射为引擎使用的非连续皮肤编号；它随版本发布，运行时不联网更新。维护者发版前运行 `cargo xtask update-catalog`，从腾讯英雄联盟官网公开数据刷新并同步生成 `native/loader/skin_catalog_generated.h`。
