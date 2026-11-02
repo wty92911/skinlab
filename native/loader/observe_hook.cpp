@@ -57,6 +57,7 @@ void copy_text(char (&out)[192],const std::string& text) {
     std::memcpy(out,text.data(),count);out[count]=0;
 }
 #include "session_binding.h"
+#include "session_probe.h"
 #include "game_session.h"
 bool target_scope() {
     wchar_t image[32768];const DWORD count=GetModuleFileNameW(nullptr,image,32768);

@@ -41,6 +41,24 @@ DWORD integrity(HANDLE process) {
     return *GetSidSubAuthority(label->Label.Sid,count-1);
 }
 void check(const char* name,bool ok){checks.push_back({name,ok});if(!ok)throw std::runtime_error(name);}
+void write_stack_probe(const SlStackProbe& probe) {
+    std::cout<<"{\"schema_version\":"<<probe.schema_version<<",\"sequence\":"<<probe.sequence
+        <<",\"render_tid\":"<<probe.render_tid<<",\"refresh_calls\":"<<probe.refresh_calls
+        <<",\"read_status\":"<<probe.read_status<<",\"begin\":"<<probe.begin<<",\"end\":"<<probe.end
+        <<",\"capacity\":"<<probe.capacity
+        <<",\"stack_prefix_hex\":"<<std::quoted(sl_observe_hex(probe.prefix,std::min<size_t>(probe.prefix_size,sizeof(probe.prefix))))
+        <<",\"layers_head_hex\":"<<std::quoted(sl_observe_hex(probe.head,std::min<size_t>(probe.head_size,sizeof(probe.head))))
+        <<",\"layers_tail_hex\":"<<std::quoted(sl_observe_hex(probe.tail,std::min<size_t>(probe.tail_size,sizeof(probe.tail))))
+        <<",\"code\":[";
+    const char* roles[]={"push","update","push_call_context"};
+    for(size_t i=0;i<3;++i) {
+        if(i)std::cout<<',';
+        const auto& code=probe.code[i];
+        std::cout<<"{\"role\":"<<std::quoted(roles[i])<<",\"rva\":"<<code.rva
+            <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(code.bytes,std::min<size_t>(code.size,sizeof(code.bytes))))<<'}';
+    }
+    std::cout<<"]}";
+}
 std::string text(const char (&value)[192]) {return std::string(value,std::find(value,value+192,0));}
 std::string sha256(HANDLE file) {
     SlObserveHasher hash;DWORD count=0;std::vector<UCHAR> buffer(65536);
@@ -190,7 +208,7 @@ struct Host {
         }
         MemoryBarrier();
     }
-    void session_reply(const std::string& error="") {
+    void session_reply(const std::string& error="",bool inspect=false) {
         const char* names[]={"starting","ready","active","stopped","recovery","target_changed"};
         const auto state=shared->session_state;
         const bool alive=WaitForSingleObject(process,0)==WAIT_TIMEOUT;
@@ -202,7 +220,13 @@ struct Host {
         const auto* entry=sl_catalog_model(shared->model_name);
         if(!std::strcmp(shared->model_name,"Fixture"))std::cout<<"0,1";
         else if(entry)for(uint32_t i=0;i<entry->count;++i){if(i)std::cout<<',';std::cout<<sl_catalog_numbers[entry->first+i];}
-        std::cout<<"],\"error\":"<<std::quoted(error)<<"}\n"<<std::flush;
+        std::cout<<"],\"error\":"<<std::quoted(error);
+        if(inspect) {
+            std::cout<<",\"stack_probe\":";
+            if(shared->stack_probe.sequence==uint32_t(shared->completed_sequence))write_stack_probe(shared->stack_probe);
+            else std::cout<<"null";
+        }
+        std::cout<<"}\n"<<std::flush;
     }
     void cleanup() {
         if(process&&shared&&session_requested&&shared->phase==SL_O_COMPLETE&&shared->session_state!=3) {
@@ -239,8 +263,9 @@ void session_loop(DWORD pid,const std::string& expected) {
                 host.command(1,uint32_t(std::stoul(number)));
             } else if(command=="restore")host.command(2);
             else if(command=="stop")host.command(3);
+            else if(command=="inspect")host.command(4);
             else if(command!="status")throw std::runtime_error("Unknown session command");
-            host.session_reply();
+            host.session_reply("",command=="inspect");
             if(command=="stop"&&host.shared->session_state==3)return;
         }catch(const std::exception& error){host.session_reply(error.what());}
     }

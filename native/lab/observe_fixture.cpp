@@ -10,10 +10,11 @@
 namespace {
 SlObserveShared* shared=nullptr;HANDLE ready=nullptr;
 IDXGISwapChain* fixture_chain=nullptr;ID3D11Device* device=nullptr;ID3D11DeviceContext* device_context=nullptr;
-alignas(8) unsigned char object[256]{};
+alignas(8) unsigned char object[512]{};
+alignas(8) unsigned char layers[288]{};
 uint64_t __cdecl generation(void*){return 1;}
 int __cdecl allowed(void*,int32_t skin){return skin==0||skin==1;}
-int __cdecl refresh(void*,void* stack,int force){return stack==object+0x80&&force==1;}
+int __cdecl refresh(void*,void* stack,int force){++shared->refresh_calls;return stack==object+0x80&&force==1;}
 LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
     if(message==WM_TIMER&&fixture_chain){fixture_chain->Present(0,0);return 0;}
     if(message==SL_O_FIXTURE_QUERY) {
@@ -51,6 +52,11 @@ int wmain(int argc,wchar_t** argv) {
         const D3D_FEATURE_LEVEL level=D3D_FEATURE_LEVEL_11_0;
         if(FAILED(D3D11CreateDeviceAndSwapChain(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,&level,1,D3D11_SDK_VERSION,&desc,&fixture_chain,&device,nullptr,&device_context)))return 9;
         const uint32_t original=0xa6f4a325;std::memcpy(object+0x20,&original,4);
+        // Two synthetic opaque layers. Their shape is a fixture contract,
+        // never evidence for the layout of a game CharacterStackData entry.
+        layers[0]=0x42;layers[sizeof(layers)-1]=0x7d;
+        const uintptr_t begin=reinterpret_cast<uintptr_t>(layers),end=begin+sizeof(layers);
+        std::memcpy(object+0x80,&begin,8);std::memcpy(object+0x88,&end,8);std::memcpy(object+0x90,&end,8);
         SetTimer(window,1,16,nullptr);
     }
     shared->window=reinterpret_cast<uintptr_t>(window);shared->fixture_tid=GetCurrentThreadId();

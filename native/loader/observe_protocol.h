@@ -5,7 +5,7 @@
 #include <string>
 
 constexpr uint64_t SL_OBSERVE_MAGIC=0x534c4f4253303031ULL;
-constexpr uint32_t SL_OBSERVE_VERSION=2,SL_OBSERVE_RULES=16;
+constexpr uint32_t SL_OBSERVE_VERSION=3,SL_OBSERVE_RULES=16;
 constexpr wchar_t SL_OBSERVE_MESSAGE[]=L"SkinLab.NativeSession.74576016-9FBC-486A-98EB-C98B41960012";
 enum : LONG {SL_O_ARMED=1,SL_O_RUNNING,SL_O_COMPLETE,SL_O_FAILED};
 enum : UINT {SL_O_FIXTURE_QUERY=WM_APP+0x630};
@@ -14,6 +14,16 @@ struct SlObserveResult {
     uint32_t match_rvas[2];
     uint32_t rva,field_offset,xor_key,rotate_first,rotate_second;
     char reason[192];
+};
+// Explicit read-only adaptation probe, collected on the session's frame thread.
+// Raw spans do not assert a stack-entry type, stride, gear offset or push ABI.
+struct SlCodeProbe {uint32_t rva,size;uint8_t bytes[1024];};
+struct SlStackProbe {
+    uint32_t schema_version,sequence,render_tid,refresh_calls,read_status;
+    uint32_t prefix_size,head_size,tail_size;
+    uint64_t begin,end,capacity;
+    uint8_t prefix[176],head[256],tail[256];
+    SlCodeProbe code[3]; // push entry, update entry, context before push call site
 };
 // Scalars and fixed arrays only. No function pointers, paths, memory read
 // addresses or executable commands are accepted from the controller.
@@ -37,6 +47,7 @@ struct SlObserveShared {
     uint64_t expected_bytes,copied_bytes,collection_ms;
     char error[192];
     SlObserveResult results[SL_OBSERVE_RULES];
+    SlStackProbe stack_probe;
 };
 static_assert(sizeof(SlObserveShared)<8192,"Observation mapping unexpectedly large");
 inline std::wstring sl_observe_name(uint32_t host_pid,uint64_t nonce) {

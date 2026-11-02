@@ -64,6 +64,7 @@ fn reply(game: &MockGame, state: SessionState) -> HostReply {
         target_pid: MOCK_PID,
         allowed_skins: Vec::new(),
         error: String::new(),
+        stack_probe: None,
     }
 }
 
@@ -128,7 +129,7 @@ impl Session for MockSession {
                 game.current = self.original;
                 SessionState::Stopped
             }
-            Command::Status => self.last.as_ref().map_or(SessionState::Ready, |r| r.state),
+            Command::Status | Command::Inspect => self.last.as_ref().map_or(SessionState::Ready, |r| r.state),
         };
         let reply = reply(&game, state);
         self.last = Some(reply.clone());

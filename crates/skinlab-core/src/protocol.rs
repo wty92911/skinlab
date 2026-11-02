@@ -10,6 +10,8 @@ pub enum Command {
     Restore,
     Stop,
     Status,
+    /// Read-only adaptation snapshot; not exposed by the player UI.
+    Inspect,
 }
 
 impl Command {
@@ -19,6 +21,7 @@ impl Command {
             Command::Restore => "restore\n".into(),
             Command::Stop => "stop\n".into(),
             Command::Status => "status\n".into(),
+            Command::Inspect => "inspect\n".into(),
         }
     }
 }
@@ -43,6 +46,33 @@ impl SessionState {
     }
 }
 
+/// Opaque on-frame observations. These do not establish a stack-entry layout
+/// or a verified gear/model-changing implementation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StackProbe {
+    pub schema_version: u32,
+    pub sequence: u32,
+    pub render_tid: u32,
+    pub refresh_calls: u32,
+    /// 1 = reread equal, 2 = unreadable span, 3 = invalid vector bounds,
+    /// 4 = target changed, 5 = unstable snapshot, 6 = core state unavailable.
+    pub read_status: u32,
+    pub begin: u64,
+    pub end: u64,
+    pub capacity: u64,
+    pub stack_prefix_hex: String,
+    pub layers_head_hex: String,
+    pub layers_tail_hex: String,
+    pub code: Vec<CodeProbe>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CodeProbe {
+    pub role: String,
+    pub rva: u32,
+    pub bytes_hex: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HostReply {
     pub event: String,
@@ -63,6 +93,8 @@ pub struct HostReply {
     pub allowed_skins: Vec<u32>,
     #[serde(default)]
     pub error: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_probe: Option<StackProbe>,
 }
 
 impl HostReply {
@@ -120,5 +152,6 @@ mod tests {
     fn command_lines() {
         assert_eq!(Command::Apply(12).line(), "apply 12\n");
         assert_eq!(Command::Stop.line(), "stop\n");
+        assert_eq!(Command::Inspect.line(), "inspect\n");
     }
 }

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-// Shared command queue. Commands: 1=apply, 2=restore, 3=restore-and-stop.
+// Shared command queue. Commands: 1=apply, 2=restore, 3=restore-and-stop, 4=inspect.
 // States: 0=starting, 1=ready, 2=active, 3=stopped, 4=recovery, 5=target changed.
 struct GameSession:SessionBinding {
     SlConfig config{};
     HANDLE controller=nullptr;
     bool initialized=false,ready_sent=false;
     char model[96]{};
+    SessionProbeSites probe_sites{};
     ~GameSession(){if(controller)CloseHandle(controller);}
     static uint64_t SL_CALL generation(void* context) {
         auto* session=static_cast<GameSession*>(context);
@@ -66,6 +67,13 @@ struct GameSession:SessionBinding {
             if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK)out.session_skin=state.current_skin;
             if(result==SL_OK)result=p.api.destroy(&p.core);
             if(result==SL_OK){p.finished=true;out.session_state=3;}
+        } else if(command==4) {
+            out.stack_probe={};out.stack_probe.schema_version=1;out.stack_probe.sequence=uint32_t(sequence);
+            out.stack_probe.render_tid=GetCurrentThreadId();out.stack_probe.refresh_calls=out.refresh_calls;
+            SlState state{};state.struct_size=sizeof(state);
+            result=p.api.state(p.core,&state);
+            if(result==SL_OK)collect_stack_probe(p.config,p.probe_sites,sequence,out.refresh_calls,out.stack_probe);
+            else out.stack_probe.read_status=result==SL_TARGET_CHANGED?4:6;
         }
         p.publish(result,sequence);
         if(disconnected&&result!=SL_OK) {
@@ -95,6 +103,12 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         };
         const auto player=find("local_player"),stack=find("character_data_stack"),skin=find("skin_id_encoding");
         const auto update=find("character_data_stack_update"),getter=find("material_registry_getter"),swap=find("swap_chain");
+        s->probe_sites.image_base=image.module_base;s->probe_sites.image_size=image.image_size;
+        s->probe_sites.rvas[1]=update.rva;
+        for(const auto& r:results)if(r.name=="character_data_stack_push"&&r.has_candidate) {
+            s->probe_sites.rvas[0]=r.candidate.rva;
+            if(!r.matches.empty())s->probe_sites.rvas[2]=r.matches[0]>=256?r.matches[0]-256:r.matches[0];
+        }
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
         s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second};

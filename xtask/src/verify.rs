@@ -12,9 +12,9 @@ pub fn run(_root: &Path) -> Result<()> {
 #[cfg(windows)]
 pub fn run(root: &Path) -> Result<()> {
     use anyhow::{Context, ensure};
-    use skinlab_core::{Catalog, HostReply, SessionState};
-    use skinlab_session::game::FixtureBackend;
-    use skinlab_session::{Controller, NativeBundle, Phase, Timing};
+    use skinlab_core::{Catalog, Command, HostReply, SessionState};
+    use skinlab_session::game::{FIXTURE_PID, FixtureBackend};
+    use skinlab_session::{Backend, Controller, NativeBundle, Phase, Timing};
     use std::time::{Duration, Instant};
 
     let bundle = NativeBundle::from_repo(root).context("run `cargo xtask native` first")?;
@@ -48,6 +48,50 @@ pub fn run(root: &Path) -> Result<()> {
             && !reply.error.is_empty(),
         "startup failure diagnostic was lost"
     );
+
+    println!("read-only frame probe against fixture");
+    let mut probe_backend = FixtureBackend::new(bundle.clone(), None);
+    let mut session = probe_backend.connect(FIXTURE_PID)?;
+    let before = session.last().context("fixture startup reply")?.clone();
+    let inspected = session.command(Command::Inspect)?;
+    let probe = inspected.stack_probe.context("inspect must return a frame snapshot")?;
+    ensure!(
+        probe.schema_version == 1
+            && probe.read_status == 1
+            && probe.sequence > 0
+            && probe.render_tid == before.render_tid
+            && probe.render_tid != 0,
+        "probe did not run on the fixture's render thread"
+    );
+    ensure!(
+        probe.stack_prefix_hex.len() == 176 * 2
+            && probe.end - probe.begin == 288
+            && probe.layers_head_hex.len() == 256 * 2
+            && probe.layers_head_hex.starts_with("42")
+            && probe.layers_tail_hex.len() == 256 * 2
+            && probe.layers_tail_hex.ends_with("7d")
+            && inspected.current_skin == before.current_skin
+            && probe.refresh_calls == 0,
+        "probe changed fixture state or did not respect bounded opaque spans"
+    );
+    session.command(Command::Apply(1))?;
+    let active = session.command(Command::Inspect)?;
+    let active_probe = active.stack_probe.context("active frame snapshot")?;
+    ensure!(
+        active.current_skin == 1
+            && active_probe.refresh_calls == 1
+            && &active_probe.stack_prefix_hex[0x38 * 2..0x3c * 2] == "01000000"
+            && active_probe.layers_head_hex == probe.layers_head_hex
+            && active_probe.layers_tail_hex == probe.layers_tail_hex,
+        "inspect must observe the selected skin without refreshing or changing layers"
+    );
+    session.command(Command::Restore)?;
+    let restored = session.command(Command::Inspect)?.stack_probe.context("restored frame snapshot")?;
+    ensure!(
+        restored.stack_prefix_hex == probe.stack_prefix_hex && restored.refresh_calls == 2,
+        "probe must preserve the original fixture layout across restore"
+    );
+    session.close()?;
 
     println!("controller against fixture");
     let mut catalog = Catalog::embedded();
