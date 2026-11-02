@@ -15,6 +15,8 @@
 | `native/src/core.cpp` | 编号编码、快照、应用、刷新及恢复 |
 | `native/src/dx11_bridge.cpp` | 在 DX11 Present 所在线程处理更新命令 |
 
+host 以 `--session` 启动时，接入失败也必须返回 `event: "session"` 的单行 JSON（尚未建成会话时用 `state: "invalid"` 并携带 `error`），不能返回普通观察报告。控制器据此分类错误；英雄尚未载入时等待重试，版本或关键特征检查失败时停止接入。`cargo xtask verify` 同时检查启动失败协议与正常 fixture 会话。
+
 ## Agent 的工作顺序
 
 1. 确认新 EXE 版本和完整 SHA256，保留旧配置以便比较。先在新二进制中检查相关函数和数据布局；用户准备训练模式后再获取必要的运行时证据。

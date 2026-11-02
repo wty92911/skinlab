@@ -47,6 +47,10 @@ cargo xtask verify     # end-to-end check against SkinLab's own WARP window
 cargo run -p skinlab
 ```
 
+PowerShell users can also run `scripts/build-session.ps1`, which delegates to the same native build. Use `-Bundle session-dev1` while an existing match holds an older DLL; development runs and `cargo xtask verify` use the bundle selected by `out/current.json`. Installer builds use `out/session/`.
+
+Windows development builds inherit the terminal's permissions; use an administrator terminal when connecting to the game. Release builds still request administrator rights at launch.
+
 On macOS/Linux, `cargo run -p skinlab` starts a demo mode with an in-memory backend for UI work. See [CONTRIBUTING.md](CONTRIBUTING.md) (Chinese) and [`docs/ADAPTATION.md`](docs/ADAPTATION.md) for adapting to new game builds.
 
 ## License

@@ -328,5 +328,11 @@ int wmain(int argc,wchar_t** argv) {
         if(game_mode){Host host(pid,expected);host.install();InterlockedExchange(&host.shared->phase,SL_O_ARMED);host.trigger();host.wait_report();host.unhook();}
         else owned_test();
     }catch(const std::exception& e){error=e.what();}
-    output(error);return error.empty()?0:1;
+    if(session_requested) {
+        // Startup can fail before a Host exists. Keep the --session contract
+        // so the controller can classify loading failures and retry them.
+        std::cout<<"{\"event\":\"session\",\"state\":\"invalid\",\"target_pid\":"<<pid
+            <<",\"error\":"<<std::quoted(error)<<"}\n"<<std::flush;
+    } else output(error);
+    return error.empty()?0:1;
 }

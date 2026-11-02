@@ -7,7 +7,7 @@ use settings::Settings;
 use skinlab_core::{Catalog, SupportedBuilds};
 use skinlab_session::game::{FixtureBackend, GameBackend};
 use skinlab_session::mock::MockBackend;
-use skinlab_session::{Backend, Controller, ControllerHandle, NativeBundle, Snapshot, Timing, bundle};
+use skinlab_session::{Backend, Controller, ControllerHandle, NativeBundle, Snapshot, Timing};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -179,12 +179,14 @@ fn native_bundle(app: &AppHandle) -> NativeBundle {
     if let Ok(dir) = std::env::var("SKINLAB_NATIVE_DIR") {
         return NativeBundle::new(dir);
     }
-    let installed = app.path().resource_dir().map(|d| d.join("native")).unwrap_or_default();
-    if installed.join(bundle::MANIFEST).exists() || !cfg!(debug_assertions) {
-        return NativeBundle::new(installed);
+    if cfg!(debug_assertions) {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("app crate lives in the repository");
+        if let Some(bundle) = NativeBundle::from_repo(repo) {
+            return bundle;
+        }
     }
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("app crate lives in the repository");
-    NativeBundle::from_repo(repo).unwrap_or_else(|| NativeBundle::new(installed))
+    let installed = app.path().resource_dir().map(|d| d.join("native")).unwrap_or_default();
+    NativeBundle::new(installed)
 }
 
 fn init_logging(dir: &Path) -> anyhow::Result<tracing_appender::non_blocking::WorkerGuard> {

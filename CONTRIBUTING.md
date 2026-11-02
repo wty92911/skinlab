@@ -34,6 +34,8 @@ cargo run -p skinlab -- --fixture   # 真实原生链路 + 自建 WARP 窗口
 cargo run -p skinlab                # 连接游戏（请在训练模式中测试）
 ```
 
+Windows 开发构建和测试程序继承终端权限，不弹出 UAC；开发时连接游戏请从管理员终端启动。正式发布版仍在启动时请求管理员权限。使用 `cargo xtask native --bundle session-dev1` 可保留旧对局占用的产物，开发运行和 fixture 检查读取 `out/current.json` 选择的新目录；安装包构建使用默认 `out/session/`。
+
 ## 提交前检查
 
 ```bash

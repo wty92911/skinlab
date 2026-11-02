@@ -12,7 +12,7 @@ pub fn run(_root: &Path) -> Result<()> {
 #[cfg(windows)]
 pub fn run(root: &Path) -> Result<()> {
     use anyhow::{Context, ensure};
-    use skinlab_core::Catalog;
+    use skinlab_core::{Catalog, HostReply, SessionState};
     use skinlab_session::game::FixtureBackend;
     use skinlab_session::{Controller, NativeBundle, Phase, Timing};
     use std::time::{Duration, Instant};
@@ -31,6 +31,23 @@ pub fn run(root: &Path) -> Result<()> {
         .filter_map(|c| c["name"].as_str())
         .collect();
     ensure!(report["status"] == "passed" && failed.is_empty(), "host self-test failed: {} {failed:?}", report["error"]);
+
+    // An impossible PID fails before installing a hook. Startup failures must
+    // use the same JSON envelope as normal replies, not the observation report.
+    println!("session startup failure protocol");
+    let output = std::process::Command::new(&host)
+        .args(["--observe-game", "4294967295", &"0".repeat(64), "--accept-module-until-exit", "--session"])
+        .current_dir(bundle.dir())
+        .output()?;
+    let reply = HostReply::parse(std::str::from_utf8(&output.stdout)?)
+        .context("session startup failure must be a session reply")?;
+    ensure!(
+        !output.status.success()
+            && reply.is_session()
+            && reply.state == SessionState::Invalid
+            && !reply.error.is_empty(),
+        "startup failure diagnostic was lost"
+    );
 
     println!("controller against fixture");
     let mut catalog = Catalog::embedded();

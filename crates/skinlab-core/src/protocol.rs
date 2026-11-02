@@ -104,6 +104,19 @@ mod tests {
     }
 
     #[test]
+    fn startup_failure_keeps_retryable_diagnostic() {
+        let reply = HostReply::parse(
+            r#"{"event":"session","state":"invalid","target_pid":42,"error":"Target observation failed: Cannot read consistent current player skin data"}"#,
+        )
+        .unwrap();
+        assert!(!reply.succeeded());
+        assert_eq!(reply.state, SessionState::Invalid);
+        let failure = crate::error::classify(&reply.error, reply.result);
+        assert_eq!(failure.kind, crate::HostFailureKind::NotReady);
+        assert!(failure.kind.retryable());
+    }
+
+    #[test]
     fn command_lines() {
         assert_eq!(Command::Apply(12).line(), "apply 12\n");
         assert_eq!(Command::Stop.line(), "stop\n");

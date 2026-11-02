@@ -69,6 +69,10 @@ cargo xtask verify     # 用自建 WARP 窗口做端到端检查，不连接游�
 cargo run -p skinlab   # 开发运行
 ```
 
+PowerShell 构建入口也可用 `scripts/build-session.ps1`，内部调用同一条 `cargo xtask native` 流程。已有对局载入旧 DLL 时，使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-session.ps1 -Bundle session-dev1` 构建到新目录；开发运行与 `cargo xtask verify` 会读取 `out/current.json` 指向的新产物。安装包构建使用 `out/session/`。
+
+Windows 开发构建继承终端权限，连接游戏时请从管理员终端运行；正式发布版仍在启动时请求管理员权限。
+
 在 macOS / Linux 上也可以开发界面和控制器：`cargo run -p skinlab` 默认进入演示模式（内存后端，不启动任何进程）。更多见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 项目结构
