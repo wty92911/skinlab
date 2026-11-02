@@ -20,6 +20,8 @@ const SAMPLE = {
   }],
 };
 const LABEL = { base: "经典", common: "普通", epic: "史诗", legendary: "传说", mythic: "神话", ultimate: "终极", prestige: "至臻", limited: "限定" };
+const LUX_FORMS = ["Lux", "LuxAir", "LuxDark", "LuxFire", "LuxIce", "LuxMagma", "LuxMystic", "LuxNature", "LuxStorm", "LuxWater"]
+  .map((id, i) => ({ id, name: ["光", "风", "暗", "火", "冰", "熔岩", "秘术", "自然", "风暴", "水"][i] }));
 
 // Mirrors Skin::rarity in crates/skinlab-core/src/catalog.rs.
 function rarity(raw = "") {
@@ -43,7 +45,8 @@ function view(champion) {
       chromas: !!s.has_chroma_variants, art_id: champion.key ? Number(champion.key) * 1000 + s.skin_id : null,
     };
   });
-  return { hero: { model: champion.id, name: champion.name, key: champion.key, in_catalog: true }, skins };
+  return { hero: { model: champion.id, name: champion.name, key: champion.key, in_catalog: true }, skins,
+    forms: champion.id === "Lux" ? LUX_FORMS : [], current_form: null, desired_form: null };
 }
 
 async function loadCatalog() {
@@ -106,7 +109,8 @@ export async function createMock() {
   const apply = async (skin, done) => {
     emit({ phase: "applying", message: "正在切换…", desired_skin: skin });
     await wait(650);
-    emit({ phase: "ready", message: done, current_skin: skin, desired_skin: null });
+    emit({ phase: "ready", message: done, current_skin: skin, desired_skin: null, desired_form: null,
+      current_form: snap.hero?.model === "Lux" && skin === 7 ? "Lux" : null });
   };
   const handlers = {
     get_snapshot: () => structuredClone(snap),
@@ -119,6 +123,12 @@ export async function createMock() {
       supported_builds: [version],
     }),
     select_skin: ({ skin }) => { apply(skin, "已生效"); },
+    select_form: async ({ form }) => {
+      if (snap.current_skin !== 7 || !snap.forms?.some((entry) => entry.id === form)) return;
+      emit({ phase: "applying", message: "正在切换…", desired_form: form });
+      await wait(400);
+      emit({ phase: "ready", message: "已生效", current_form: form, desired_form: null });
+    },
     restore_skin: () => { apply(snap.original_skin, "已恢复原皮"); },
     refresh: () => {},
     open_logs: () => {},

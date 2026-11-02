@@ -57,6 +57,8 @@ void copy_text(char (&out)[192],const std::string& text) {
     std::memcpy(out,text.data(),count);out[count]=0;
 }
 #include "session_binding.h"
+#include "lux_forms.h"
+#include "owned_layer.h"
 #include "session_probe.h"
 #include "game_session.h"
 bool target_scope() {
@@ -93,6 +95,11 @@ DWORD WINAPI observe(void* parameter) {
                 copy_text(dest.reason,r.reason);
             }
             observe_player(out,image,results);
+            if(out.request_session==2) {
+                auto sites=session_probe_sites(image,results);
+                if(out.player_read_status==1&&out.player_stable&&out.stack_address)resolve_gear_probe(sites,uintptr_t(out.stack_address));
+                collect_code_probe(sites,out.stack_probe.code);
+            }
             if(out.request_session==1) {
                 out.result_count=uint32_t(results.size());
                 if(start_session(work,image,results))return 0;

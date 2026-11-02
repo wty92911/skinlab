@@ -6,6 +6,7 @@
 #include "observe_protocol.h"
 #include "observe_hash.h"
 #include "skin_catalog.h"
+#include "lux_forms.h"
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
@@ -23,7 +24,7 @@ constexpr wchar_t game_image_name[]=L"League of Legends.exe";
 struct Check {std::string name;bool passed;};std::vector<Check> checks;
 SlObserveShared observation{};bool have_observation=false,game_mode=false,hook_removed=false;
 
-bool session_requested=false;
+bool session_requested=false,code_probe_requested=false;
 std::string target_sha;uint32_t selected_pid=0;
 DWORD observer_integrity=0,target_integrity=0;
 void os(bool ok,const char* action){if(!ok)throw std::runtime_error(std::string(action)+": Win32 "+std::to_string(GetLastError()));}
@@ -41,6 +42,17 @@ DWORD integrity(HANDLE process) {
     return *GetSidSubAuthority(label->Label.Sid,count-1);
 }
 void check(const char* name,bool ok){checks.push_back({name,ok});if(!ok)throw std::runtime_error(name);}
+void write_code_probe(const SlCodeProbe (&codes)[SL_CODE_PROBES]) {
+    std::cout<<'[';
+    const char* roles[]={"push","update","push_call_context","layer_destructor","gear_setter"};
+    for(size_t i=0;i<SL_CODE_PROBES;++i) {
+        if(i)std::cout<<',';
+        const auto& code=codes[i];
+        std::cout<<"{\"role\":"<<std::quoted(roles[i])<<",\"rva\":"<<code.rva
+            <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(code.bytes,std::min<size_t>(code.size,sizeof(code.bytes))))<<'}';
+    }
+    std::cout<<']';
+}
 void write_stack_probe(const SlStackProbe& probe) {
     std::cout<<"{\"schema_version\":"<<probe.schema_version<<",\"sequence\":"<<probe.sequence
         <<",\"render_tid\":"<<probe.render_tid<<",\"refresh_calls\":"<<probe.refresh_calls
@@ -49,15 +61,8 @@ void write_stack_probe(const SlStackProbe& probe) {
         <<",\"stack_prefix_hex\":"<<std::quoted(sl_observe_hex(probe.prefix,std::min<size_t>(probe.prefix_size,sizeof(probe.prefix))))
         <<",\"layers_head_hex\":"<<std::quoted(sl_observe_hex(probe.head,std::min<size_t>(probe.head_size,sizeof(probe.head))))
         <<",\"layers_tail_hex\":"<<std::quoted(sl_observe_hex(probe.tail,std::min<size_t>(probe.tail_size,sizeof(probe.tail))))
-        <<",\"code\":[";
-    const char* roles[]={"push","update","push_call_context"};
-    for(size_t i=0;i<3;++i) {
-        if(i)std::cout<<',';
-        const auto& code=probe.code[i];
-        std::cout<<"{\"role\":"<<std::quoted(roles[i])<<",\"rva\":"<<code.rva
-            <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(code.bytes,std::min<size_t>(code.size,sizeof(code.bytes))))<<'}';
-    }
-    std::cout<<"]}";
+        <<",\"code\":";
+    write_code_probe(probe.code);std::cout<<'}';
 }
 std::string text(const char (&value)[192]) {return std::string(value,std::find(value,value+192,0));}
 std::string sha256(HANDLE file) {
@@ -110,7 +115,7 @@ struct Host {
         selected_pid=pid;creation=sl_creation_time(process);os(creation!=0,"Read target creation identity");
         shared->magic=SL_OBSERVE_MAGIC;shared->version=SL_OBSERVE_VERSION;shared->struct_size=sizeof(*shared);
         shared->host_pid=GetCurrentProcessId();shared->target_pid=pid;shared->nonce=nonce;shared->creation_time=creation;
-        shared->request_session=session_requested?1:0;
+        shared->request_session=session_requested?1:(code_probe_requested?2:0);
         if(!game_pid) {
             os(ResumeThread(child.hThread)!=DWORD(-1),"Start observation fixture");
             os(WaitForSingleObject(ready,10000)==WAIT_OBJECT_0,"Wait for owned fixture window");MemoryBarrier();
@@ -221,6 +226,12 @@ struct Host {
         if(!std::strcmp(shared->model_name,"Fixture"))std::cout<<"0,1";
         else if(entry)for(uint32_t i=0;i<entry->count;++i){if(i)std::cout<<',';std::cout<<sl_catalog_numbers[entry->first+i];}
         std::cout<<"],\"error\":"<<std::quoted(error);
+        std::cout<<",\"current_form\":";
+        if(shared->forms_available&&shared->session_skin==7&&shared->session_form<sl_lux_form_count)std::cout<<std::quoted(sl_lux_forms[shared->session_form]);
+        else std::cout<<"null";
+        std::cout<<",\"available_forms\":[";
+        if(shared->forms_available)for(uint32_t i=0;i<sl_lux_form_count;++i){if(i)std::cout<<',';std::cout<<std::quoted(sl_lux_forms[i]);}
+        std::cout<<']';
         if(inspect) {
             std::cout<<",\"stack_probe\":";
             if(shared->stack_probe.sequence==uint32_t(shared->completed_sequence))write_stack_probe(shared->stack_probe);
@@ -264,6 +275,14 @@ void session_loop(DWORD pid,const std::string& expected) {
             } else if(command=="restore")host.command(2);
             else if(command=="stop")host.command(3);
             else if(command=="inspect")host.command(4);
+            else if(command=="form") {
+                input>>number;
+                if(input>>extra)throw std::runtime_error("Unexpected form argument");
+                uint32_t selected=sl_lux_form_count;
+                for(uint32_t i=0;i<sl_lux_form_count;++i)if(number==sl_lux_forms[i])selected=i;
+                if(selected==sl_lux_form_count)throw std::runtime_error("Unknown Lux form");
+                host.command(5,selected);
+            }
             else if(command!="status")throw std::runtime_error("Unknown session command");
             host.session_reply("",command=="inspect");
             if(command=="stop"&&host.shared->session_state==3)return;
@@ -329,7 +348,11 @@ void output(const std::string& error) {
             else std::cout<<"null";
             std::cout<<'}';
         }
-        std::cout<<"]}";
+        std::cout<<"]";
+        if(code_probe_requested) {
+            std::cout<<",\"code_probe\":";write_code_probe(observation.stack_probe.code);
+        }
+        std::cout<<'}';
     }
     std::cout<<"}\n";
 }
@@ -338,14 +361,19 @@ int wmain(int argc,wchar_t** argv) {
     DWORD pid=0;std::string expected;
     const bool fixture_session=argc==2&&std::wstring(argv[1])==L"--fixture-session";
     session_requested=fixture_session;
-    if((argc==5||(argc==6&&std::wstring(argv[5])==L"--session"))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {
+    if((argc==5||(argc==6&&(std::wstring(argv[5])==L"--session"||std::wstring(argv[5])==L"--probe-code")))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {
         const std::wstring number=argv[2];
         if(!number.empty()&&number.size()<=10&&std::all_of(number.begin(),number.end(),[](wchar_t c){return c>=L'0'&&c<=L'9';})) {
-            const auto wide=std::stoull(number);if(wide&&wide<=UINT32_MAX){pid=DWORD(wide);game_mode=true;session_requested=argc==6;expected.assign(argv[3],argv[3]+64);}
+            const auto wide=std::stoull(number);if(wide&&wide<=UINT32_MAX) {
+                pid=DWORD(wide);game_mode=true;
+                session_requested=argc==6&&std::wstring(argv[5])==L"--session";
+                code_probe_requested=argc==6&&std::wstring(argv[5])==L"--probe-code";
+                expected.assign(argv[3],argv[3]+64);
+            }
         }
     }
     if(argc!=1&&!game_mode&&!fixture_session) {
-        std::cerr<<"Usage: skinlab-observe-host.exe [--observe-game PID EXPECTED_DISK_SHA256 --accept-module-until-exit]\n";return 2;
+        std::cerr<<"Usage: skinlab-observe-host.exe [--observe-game PID EXPECTED_DISK_SHA256 --accept-module-until-exit [--session|--probe-code]]\n";return 2;
     }
     std::string error;
     try {

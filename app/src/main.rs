@@ -4,7 +4,7 @@
 mod settings;
 
 use settings::Settings;
-use skinlab_core::{Catalog, SupportedBuilds};
+use skinlab_core::{Catalog, LuxForm, SupportedBuilds};
 use skinlab_session::game::{FixtureBackend, GameBackend};
 use skinlab_session::mock::MockBackend;
 use skinlab_session::{Backend, Controller, ControllerHandle, NativeBundle, Snapshot, Timing};
@@ -80,6 +80,11 @@ fn get_snapshot(state: tauri::State<'_, AppState>) -> Snapshot {
 #[tauri::command]
 fn select_skin(state: tauri::State<'_, AppState>, skin: u32) {
     state.controller.select(skin);
+}
+
+#[tauri::command]
+fn select_form(state: tauri::State<'_, AppState>, form: LuxForm) {
+    state.controller.select_form(form);
 }
 
 #[tauri::command]
@@ -302,6 +307,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             select_skin,
+            select_form,
             restore_skin,
             refresh,
             app_info,

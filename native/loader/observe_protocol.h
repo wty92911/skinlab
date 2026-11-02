@@ -5,7 +5,7 @@
 #include <string>
 
 constexpr uint64_t SL_OBSERVE_MAGIC=0x534c4f4253303031ULL;
-constexpr uint32_t SL_OBSERVE_VERSION=3,SL_OBSERVE_RULES=16;
+constexpr uint32_t SL_OBSERVE_VERSION=7,SL_OBSERVE_RULES=16,SL_CODE_PROBES=5;
 constexpr wchar_t SL_OBSERVE_MESSAGE[]=L"SkinLab.NativeSession.74576016-9FBC-486A-98EB-C98B41960012";
 enum : LONG {SL_O_ARMED=1,SL_O_RUNNING,SL_O_COMPLETE,SL_O_FAILED};
 enum : UINT {SL_O_FIXTURE_QUERY=WM_APP+0x630};
@@ -17,13 +17,13 @@ struct SlObserveResult {
 };
 // Explicit read-only adaptation probe, collected on the session's frame thread.
 // Raw spans do not assert a stack-entry type, stride, gear offset or push ABI.
-struct SlCodeProbe {uint32_t rva,size;uint8_t bytes[1024];};
+struct SlCodeProbe {uint32_t rva,size;uint8_t bytes[4096];};
 struct SlStackProbe {
     uint32_t schema_version,sequence,render_tid,refresh_calls,read_status;
     uint32_t prefix_size,head_size,tail_size;
     uint64_t begin,end,capacity;
     uint8_t prefix[176],head[256],tail[256];
-    SlCodeProbe code[3]; // push entry, update entry, context before push call site
+    SlCodeProbe code[SL_CODE_PROBES]; // push, update, call context, layer destructor, gear setter
 };
 // Scalars and fixed arrays only. No function pointers, paths, memory read
 // addresses or executable commands are accepted from the controller.
@@ -33,7 +33,7 @@ struct SlObserveShared {
     uint64_t nonce,creation_time,window;
     uint32_t request_session,render_tid,refresh_calls;
     volatile LONG command_lock,command_sequence,completed_sequence;
-    uint32_t session_command,requested_skin,session_result,session_skin,session_state;
+    uint32_t session_command,requested_skin,session_result,session_skin,session_state,session_form,forms_available;
     volatile LONG phase;
     uint32_t fixture_tid,fixture_module_present,fixture_queries,fixture_exited;
     uint32_t hook_tid,worker_tid,module_pinned,win32_error;
@@ -49,7 +49,7 @@ struct SlObserveShared {
     SlObserveResult results[SL_OBSERVE_RULES];
     SlStackProbe stack_probe;
 };
-static_assert(sizeof(SlObserveShared)<8192,"Observation mapping unexpectedly large");
+static_assert(sizeof(SlObserveShared)<32768,"Observation mapping unexpectedly large");
 inline std::wstring sl_observe_name(uint32_t host_pid,uint64_t nonce) {
     return L"Local\\SkinLabObserve-"+std::to_wstring(host_pid)+L"-"+std::to_wstring(nonce);
 }

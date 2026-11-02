@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-// Shared command queue. Commands: 1=apply, 2=restore, 3=restore-and-stop, 4=inspect.
+// Shared command queue: 1=apply, 2=restore, 3=stop, 4=inspect, 5=Lux model form.
 // States: 0=starting, 1=ready, 2=active, 3=stopped, 4=recovery, 5=target changed.
 struct GameSession:SessionBinding {
     SlConfig config{};
@@ -7,6 +7,7 @@ struct GameSession:SessionBinding {
     bool initialized=false,ready_sent=false;
     char model[96]{};
     SessionProbeSites probe_sites{};
+    OwnedStackLayer layer{};
     ~GameSession(){if(controller)CloseHandle(controller);}
     static uint64_t SL_CALL generation(void* context) {
         auto* session=static_cast<GameSession*>(context);
@@ -23,8 +24,20 @@ struct GameSession:SessionBinding {
         // catalog numbers; don't require a new native build for each new skin.
         return skin>=0&&skin<1000;
     }
+    SlStatus clear_form() {
+        const bool had_layer=layer.owned;
+        const auto stack=reinterpret_cast<uintptr_t>(config.object_data)+config.layout.character_stack_offset;
+        const auto result=layer.remove(config,stack);
+        if(result!=SL_OK)return result;
+        if(had_layer) {
+            refresh(this,reinterpret_cast<void*>(stack),1);
+            if(layer.guard(config)!=SL_OK)return SL_TARGET_CHANGED;
+        }
+        work->shared->session_form=0;return SL_OK;
+    }
     void publish(SlStatus result,LONG sequence) {
         auto& out=*work->shared;out.session_result=result;
+        out.session_form=layer.recovery?sl_lux_form_count:(layer.owned?layer.form:0);
         if(result==SL_TARGET_CHANGED)out.session_state=5;
         else if(result==SL_RECOVERY_REQUIRED)out.session_state=4;
         if(core&&result==SL_OK) {
@@ -41,6 +54,11 @@ struct GameSession:SessionBinding {
         out.render_tid=GetCurrentThreadId();
         if(!p.initialized) {
             p.initialized=true;const auto result=p.api.create(&p.config,&p.core);
+            p.layer.thread=GetCurrentThreadId();
+            const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+            uintptr_t values[3]{};uint8_t gear=0;
+            out.forms_available=p.layer.push&&p.layer.destroy&&p.layer.header(stack,values)&&values[0]==values[1]
+                &&local_copy(stack+0x9c,&gear,1)&&gear==0xff;
             p.publish(result,0);p.ready_sent=true;
             if(result!=SL_OK){p.finished=true;InterlockedExchange(&out.phase,SL_O_FAILED);}
             else InterlockedExchange(&out.phase,SL_O_COMPLETE);
@@ -59,11 +77,17 @@ struct GameSession:SessionBinding {
         if(sequence==InterlockedCompareExchange(&out.completed_sequence,0,0)&&!disconnected)return;
         const auto command=disconnected?3:queued_command;
         SlStatus result=SL_INVALID_ARGUMENT;
-        if(command==1)result=p.api.apply(p.core,static_cast<int32_t>(requested));
-        else if(command==2)result=p.api.restore(p.core);
+        if(command==1) {
+            result=p.clear_form();
+            if(result==SL_OK)result=p.api.apply(p.core,static_cast<int32_t>(requested));
+        } else if(command==2) {
+            result=p.clear_form();
+            if(result==SL_OK)result=p.api.restore(p.core);
+        }
         else if(command==3) {
             SlState state{};state.struct_size=sizeof(state);
-            result=p.api.restore(p.core);
+            result=p.clear_form();
+            if(result==SL_OK)result=p.api.restore(p.core);
             if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK)out.session_skin=state.current_skin;
             if(result==SL_OK)result=p.api.destroy(&p.core);
             if(result==SL_OK){p.finished=true;out.session_state=3;}
@@ -74,6 +98,28 @@ struct GameSession:SessionBinding {
             result=p.api.state(p.core,&state);
             if(result==SL_OK)collect_stack_probe(p.config,p.probe_sites,sequence,out.refresh_calls,out.stack_probe);
             else out.stack_probe.read_status=result==SL_TARGET_CHANGED?4:6;
+        } else if(command==5) {
+            SlState state{};state.struct_size=sizeof(state);
+            result=p.api.state(p.core,&state);
+            if(result==SL_OK) {
+                if(!out.forms_available)result=SL_UNSUPPORTED_BINDING;
+                else if(std::strcmp(p.model,"Lux")||state.current_skin!=7)result=SL_INVALID_SKIN;
+                else if(!requested) {
+                    const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+                    uintptr_t values[3]{};
+                    if(!p.layer.owned&&(!p.layer.header(stack,values)||values[0]!=values[1]))result=SL_UNSUPPORTED_BINDING;
+                    else result=p.clear_form();
+                }
+                else {
+                    const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+                    const bool same=p.layer.owned&&p.layer.form==requested;
+                    result=p.layer.select(p.config,stack,requested);
+                    if(result==SL_OK) {
+                        out.session_form=requested;
+                        if(!same)++out.refresh_calls; // push invokes update internally
+                    }
+                }
+            }
         }
         p.publish(result,sequence);
         if(disconnected&&result!=SL_OK) {
@@ -83,6 +129,13 @@ struct GameSession:SessionBinding {
         }
     }
 };
+bool layer_code_equal(const SessionProbeSites& sites,uint32_t rva,size_t size,const char* expected) {
+    uint8_t code[2048]{};
+    if(!rva||size>sizeof(code)||rva>=sites.image_size||size>sites.image_size-rva
+       ||!local_copy(sites.image_base+rva,code,size))return false;
+    SlObserveHasher hash;hash.add(code,size);const auto digest=hash.finish();
+    return sl_observe_hex(digest.data(),digest.size())==expected;
+}
 bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Snapshot& image,const std::vector<skinlab::profile::Result>& results) {
     if(session_active)throw std::runtime_error("A session is already active in this module");
     std::unique_ptr<GameSession> pending(new GameSession);
@@ -103,11 +156,16 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         };
         const auto player=find("local_player"),stack=find("character_data_stack"),skin=find("skin_id_encoding");
         const auto update=find("character_data_stack_update"),getter=find("material_registry_getter"),swap=find("swap_chain");
-        s->probe_sites.image_base=image.module_base;s->probe_sites.image_size=image.image_size;
-        s->probe_sites.rvas[1]=update.rva;
-        for(const auto& r:results)if(r.name=="character_data_stack_push"&&r.has_candidate) {
-            s->probe_sites.rvas[0]=r.candidate.rva;
-            if(!r.matches.empty())s->probe_sites.rvas[2]=r.matches[0]>=256?r.matches[0]-256:r.matches[0];
+        s->probe_sites=session_probe_sites(image,results);
+        // Full function fingerprints from this build's runtime capture guard
+        // the special ABI in addition to the ordinary six profile recipes.
+        // A mismatch disables forms and leaves ordinary skins available.
+        if(!std::strcmp(out.model_name,"Lux")
+           &&layer_code_equal(s->probe_sites,s->probe_sites.rvas[0],0x437,"6767046dda202acfddc434e9d6cdf26777cfda0e93a31f64e42b00fd1dc67df8")
+           &&layer_code_equal(s->probe_sites,s->probe_sites.rvas[1],0x780,"197ea845aca91c3b0a1b8599c1b33237701f6947108c3db8950883f23c622aec")
+           &&layer_code_equal(s->probe_sites,s->probe_sites.rvas[3],0x9a,"93bb3ca99233b8611be27dc33ba0d52979ba1e1f5c1ac00c451976ad352693eb")) {
+            s->layer.push=reinterpret_cast<SlLayerPush>(image.module_base+s->probe_sites.rvas[0]);
+            s->layer.destroy=reinterpret_cast<SlLayerDestroy>(image.module_base+s->probe_sites.rvas[3]);
         }
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));

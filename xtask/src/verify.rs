@@ -71,6 +71,8 @@ pub fn run(root: &Path) -> Result<()> {
             && probe.layers_tail_hex.len() == 256 * 2
             && probe.layers_tail_hex.ends_with("7d")
             && inspected.current_skin == before.current_skin
+            && before.available_forms.is_empty()
+            && before.current_form.is_none()
             && probe.refresh_calls == 0,
         "probe changed fixture state or did not respect bounded opaque spans"
     );

@@ -11,4 +11,4 @@ pub mod protocol;
 pub use builds::{Build, SupportedBuilds};
 pub use catalog::{Catalog, Champion, Rarity, Skin};
 pub use error::{HostFailure, HostFailureKind};
-pub use protocol::{Command, HostReply, SessionState};
+pub use protocol::{Command, HostReply, LuxForm, SessionState};

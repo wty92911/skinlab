@@ -9,7 +9,7 @@
 use crate::backend::{Backend, ConnectError, Session};
 use serde::Serialize;
 use skinlab_core::live::ActiveHero;
-use skinlab_core::{Catalog, Champion, Command, HostFailureKind, Rarity};
+use skinlab_core::{Catalog, Champion, Command, HostFailureKind, HostReply, LuxForm, Rarity};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -60,8 +60,17 @@ pub struct Snapshot {
     pub current_skin: Option<u32>,
     pub original_skin: Option<u32>,
     pub desired_skin: Option<u32>,
+    pub current_form: Option<LuxForm>,
+    pub desired_form: Option<LuxForm>,
+    pub forms: Vec<FormView>,
     pub game_version: Option<String>,
     pub catalog_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FormView {
+    pub id: LuxForm,
+    pub name: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,6 +93,7 @@ impl Default for Timing {
 
 pub enum Request {
     Select(u32),
+    SelectForm(LuxForm),
     Restore,
     /// Rescan now instead of waiting for the next tick.
     Refresh,
@@ -127,6 +137,10 @@ impl ControllerHandle {
         let _ = self.sender.send(Request::Select(skin));
     }
 
+    pub fn select_form(&self, form: LuxForm) {
+        let _ = self.sender.send(Request::SelectForm(form));
+    }
+
     pub fn restore(&self) {
         let _ = self.sender.send(Request::Restore);
     }
@@ -157,6 +171,9 @@ impl Controller {
             current_skin: None,
             original_skin: None,
             desired_skin: None,
+            current_form: None,
+            desired_form: None,
+            forms: Vec::new(),
             game_version: None,
             catalog_version: catalog.version.clone(),
         };
@@ -219,6 +236,7 @@ impl Controller {
             for request in first.into_iter().chain(requests.try_iter()) {
                 match request {
                     Request::Select(skin) => self.select(skin),
+                    Request::SelectForm(form) => self.select_form(form),
                     Request::Restore => self.restore_requested = true,
                     Request::Refresh => tick = true,
                     Request::SetPaused(paused) => {
@@ -278,6 +296,9 @@ impl Controller {
         self.snapshot.current_skin = None;
         self.snapshot.original_skin = None;
         self.snapshot.desired_skin = None;
+        self.snapshot.current_form = None;
+        self.snapshot.desired_form = None;
+        self.snapshot.forms.clear();
     }
 
     /// One discovery pass. Public for tests; the controller thread calls it on a timer.
@@ -343,6 +364,7 @@ impl Controller {
                     self.show_hero(&reply.model, "");
                     self.snapshot.current_skin = Some(reply.current_skin);
                     self.snapshot.original_skin = Some(reply.current_skin);
+                    self.show_forms(&reply);
                 }
                 let message = if self.snapshot.hero.as_ref().is_some_and(|h| !h.in_catalog) {
                     "目录中没有该英雄，请更新 SkinLab"
@@ -373,7 +395,29 @@ impl Controller {
             return;
         }
         self.snapshot.desired_skin = Some(skin);
+        self.snapshot.desired_form = None;
         self.publish();
+    }
+
+    pub fn select_form(&mut self, form: LuxForm) {
+        if self.session.is_none()
+            || self.snapshot.current_skin != Some(7)
+            || self.snapshot.desired_skin.is_some_and(|skin| skin != 7)
+            || !self.snapshot.forms.iter().any(|available| available.id == form)
+        {
+            return;
+        }
+        self.snapshot.desired_form = (Some(form) != self.snapshot.current_form).then_some(form);
+        self.publish();
+    }
+
+    fn show_forms(&mut self, reply: &HostReply) {
+        self.snapshot.current_form = reply.current_form;
+        self.snapshot.forms = if reply.model == "Lux" {
+            reply.available_forms.iter().map(|&id| FormView { id, name: id.label() }).collect()
+        } else {
+            Vec::new()
+        };
     }
 
     pub fn request_restore(&mut self) {
@@ -384,14 +428,19 @@ impl Controller {
     pub fn drive(&mut self) {
         if self.session.is_none() {
             self.restore_requested = false;
+            self.snapshot.desired_form = None;
             return;
         }
         let command = if std::mem::take(&mut self.restore_requested) {
             self.snapshot.desired_skin = None;
+            self.snapshot.desired_form = None;
             Command::Restore
         } else {
             match self.snapshot.desired_skin {
                 Some(wanted) if Some(wanted) != self.snapshot.current_skin => Command::Apply(wanted),
+                _ if self.snapshot.desired_form.is_some_and(|form| Some(form) != self.snapshot.current_form) => {
+                    Command::Form(self.snapshot.desired_form.expect("checked above"))
+                }
                 _ => return,
             }
         };
@@ -400,6 +449,8 @@ impl Controller {
         match session.command(command) {
             Ok(reply) => {
                 self.snapshot.current_skin = Some(reply.current_skin);
+                self.show_forms(&reply);
+                self.snapshot.desired_form = None;
                 if self.snapshot.desired_skin == Some(reply.current_skin) || command == Command::Restore {
                     self.snapshot.desired_skin = None;
                 }
@@ -408,8 +459,10 @@ impl Controller {
             }
             Err(error) => {
                 self.snapshot.desired_skin = None;
+                self.snapshot.desired_form = None;
                 if let Some(last) = &error.last {
                     self.snapshot.current_skin = Some(last.current_skin);
+                    self.show_forms(last);
                 }
                 let ended = error.last.as_ref().is_some_and(|r| r.state.is_final())
                     || matches!(error.failure.kind, HostFailureKind::TargetExited | HostFailureKind::TargetChanged);
@@ -432,6 +485,9 @@ impl Controller {
         self.snapshot.current_skin = None;
         self.snapshot.original_skin = None;
         self.snapshot.desired_skin = None;
+        self.snapshot.current_form = None;
+        self.snapshot.desired_form = None;
+        self.snapshot.forms.clear();
         if block.is_some() {
             self.blocked = block;
             self.set(Phase::Blocked, message);
@@ -510,6 +566,45 @@ mod tests {
         c.select(99_999);
         c.drive();
         assert!(game.lock().unwrap().applied.is_empty());
+    }
+
+    #[test]
+    fn manual_forms_follow_latest_choice_and_restore_with_skin() {
+        let game = MockGame::shared(Some("Lux"));
+        let mut c = controller(&game);
+        c.tick();
+        assert_eq!(c.snapshot().forms.len(), 10);
+        c.select_form(LuxForm::Air);
+        c.drive();
+        assert!(game.lock().unwrap().applied_forms.is_empty());
+
+        c.select(7);
+        c.drive();
+        c.select_form(LuxForm::Air);
+        c.select_form(LuxForm::Fire);
+        c.drive();
+        assert_eq!(c.snapshot().current_form, Some(LuxForm::Fire));
+        assert_eq!(game.lock().unwrap().applied_forms, vec![LuxForm::Fire]);
+
+        c.select_form(LuxForm::Air);
+        c.select(1);
+        c.drive();
+        assert_eq!(c.snapshot().current_skin, Some(1));
+        assert_eq!(c.snapshot().current_form, None);
+        assert_eq!(c.snapshot().desired_form, None);
+        assert_eq!(game.lock().unwrap().applied_forms, vec![LuxForm::Fire]);
+
+        c.select(7);
+        c.drive();
+        c.select_form(LuxForm::Air);
+        c.drive();
+        c.request_restore();
+        c.drive();
+        assert_eq!(c.snapshot().current_skin, Some(0));
+        assert_eq!(c.snapshot().current_form, None);
+        c.shutdown();
+        assert!(c.snapshot().forms.is_empty());
+        assert!(game.lock().unwrap().closed);
     }
 
     #[test]

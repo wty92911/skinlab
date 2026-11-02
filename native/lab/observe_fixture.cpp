@@ -6,8 +6,65 @@
 #include "session_fixture.h"
 #include <d3d11.h>
 #include <cstring>
+#include "lux_forms.h"
 
 namespace {
+bool local_copy(uintptr_t address,void* output,size_t size) {
+    SIZE_T done=0;
+    return ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(address),output,size,&done)&&done==size;
+}
+#include "owned_layer.h"
+struct LayerFixture {
+    alignas(8) uint8_t stack[512]{},entries[320]{};
+    uint64_t generation=9;
+    uint32_t pushes=0,destroys=0;
+    bool arguments=true;
+};
+LayerFixture* layer_fixture=nullptr;
+void __fastcall fixture_push(void* stack,const char* model,int32_t skin,int32_t a4,
+    bool a5,bool a6,bool a7,bool a8,bool a9,bool a10,int8_t gear,const char* a12,
+    int32_t a13,const char* a14,int32_t a15,bool a16,int32_t a17,const char* a18) {
+    auto& f=*layer_fixture;++f.pushes;
+    f.arguments=f.arguments&&stack==f.stack&&skin==7&&!a4&&!a5&&!a6&&!a7&&!a8&&a9&&!a10
+        &&gear==-1&&!*a12&&!a13&&!*a14&&!a15&&!a16&&a17==1&&!*a18;
+    const uintptr_t values[]={reinterpret_cast<uintptr_t>(f.entries),reinterpret_cast<uintptr_t>(f.entries)+0xa0,
+        reinterpret_cast<uintptr_t>(f.entries)+sizeof(f.entries)};
+    std::memcpy(f.stack,values,sizeof(values));
+    const auto length=uint32_t(std::strlen(model));
+    std::memcpy(f.entries,&model,8);std::memcpy(f.entries+8,&length,4);
+    std::memcpy(f.entries+0x20,&skin,4);f.entries[0x84]=0xff;
+}
+void __fastcall fixture_destroy(void* entry) {
+    auto& f=*layer_fixture;++f.destroys;
+    uintptr_t values[3]{};std::memcpy(values,f.stack,sizeof(values));
+    f.arguments=f.arguments&&entry==f.entries&&values[0]==values[1];
+    std::memset(entry,0,0xa0);
+}
+uint64_t __cdecl layer_generation(void* context){return static_cast<LayerFixture*>(context)->generation;}
+bool check_owned_layer() {
+    LayerFixture fixture{};layer_fixture=&fixture;
+    SlConfig config{};config.context=&fixture;config.generation=layer_generation;config.expected_generation=9;
+    const auto stack=reinterpret_cast<uintptr_t>(fixture.stack);
+    uint32_t skin=7;std::memcpy(fixture.stack+0x38,&skin,4);
+    OwnedStackLayer layer{};layer.thread=GetCurrentThreadId();layer.push=fixture_push;layer.destroy=fixture_destroy;
+    if(layer.select(config,stack,1)!=SL_OK||!layer.owned||fixture.pushes!=1||!fixture.arguments)return false;
+    if(layer.select(config,stack,1)!=SL_OK||fixture.pushes!=1)return false;
+    if(layer.select(config,stack,2)!=SL_OK||fixture.pushes!=2||fixture.destroys!=1||!fixture.arguments)return false;
+    fixture.entries[0x7f]=1;
+    if(layer.remove(config,stack)!=SL_RECOVERY_REQUIRED||fixture.destroys!=1)return false;
+    fixture.entries[0x7f]=0;
+    if(layer.remove(config,stack)!=SL_OK||layer.owned||fixture.destroys!=2||!fixture.arguments)return false;
+    uintptr_t values[3]{};std::memcpy(values,fixture.stack,sizeof(values));
+    if(values[0]!=values[1])return false;
+    // Reject a foreign layer without changing its bytes or calling its destructor.
+    values[1]+=0xa0;std::memcpy(fixture.stack,values,sizeof(values));
+    if(layer.select(config,stack,1)!=SL_UNSUPPORTED_BINDING||fixture.pushes!=2||fixture.destroys!=2)return false;
+    values[1]=values[0];std::memcpy(fixture.stack,values,sizeof(values));
+    fixture.generation=10;
+    if(layer.select(config,stack,1)!=SL_TARGET_CHANGED||fixture.pushes!=2)return false;
+    fixture.generation=9;skin=0;std::memcpy(fixture.stack+0x38,&skin,4);
+    return layer.select(config,stack,1)==SL_INVALID_SKIN&&fixture.pushes==2&&fixture.arguments;
+}
 SlObserveShared* shared=nullptr;HANDLE ready=nullptr;
 IDXGISwapChain* fixture_chain=nullptr;ID3D11Device* device=nullptr;ID3D11DeviceContext* device_context=nullptr;
 alignas(8) unsigned char object[512]{};
@@ -35,6 +92,7 @@ extern "C" __declspec(dllexport) int __cdecl skinlab_get_session_fixture(SlSessi
 }
 int wmain(int argc,wchar_t** argv) {
     if(argc!=2)return 2;
+    if(!check_owned_layer())return 10;
     HANDLE mapping=OpenFileMappingW(FILE_MAP_READ|FILE_MAP_WRITE,FALSE,argv[1]);if(!mapping)return 3;
     shared=static_cast<SlObserveShared*>(MapViewOfFile(mapping,FILE_MAP_READ|FILE_MAP_WRITE,0,0,sizeof(SlObserveShared)));
     ready=OpenEventW(EVENT_MODIFY_STATE,FALSE,(std::wstring(argv[1])+L"-ready").c_str());

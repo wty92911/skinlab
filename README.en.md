@@ -31,7 +31,7 @@
 - Only connects to game builds verified in [`data/builds.json`](data/builds.json); unknown builds show "not yet supported" and nothing is loaded.
 - Restores the original skin and stops the session when the window closes. <kbd>Insert</kbd> shows/hides the window.
 
-Ultimate and multi-form skins are marked with `!`; their special forms are not adapted yet.
+Elementalist Lux supports manual selection of ten elemental forms from a dropdown after selecting the skin. Air and Fire models and Q/W/E/R effects, plus restoration to the original skin, were checked in Practice Tool. Other ultimate and multi-form skins whose special behavior is not adapted are marked with `!` and may only apply partially.
 
 ## Download
 

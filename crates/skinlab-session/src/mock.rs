@@ -4,7 +4,7 @@
 
 use crate::backend::{Backend, ConnectError, Session, SessionError};
 use skinlab_core::live::ActiveHero;
-use skinlab_core::{Command, HostFailureKind, HostReply, SessionState};
+use skinlab_core::{Command, HostFailureKind, HostReply, LuxForm, SessionState};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -21,6 +21,8 @@ pub struct MockGame {
     pub latency: Duration,
     pub current: u32,
     pub applied: Vec<u32>,
+    pub current_form: Option<LuxForm>,
+    pub applied_forms: Vec<LuxForm>,
     pub connects: u32,
     pub closed: bool,
 }
@@ -59,6 +61,8 @@ fn reply(game: &MockGame, state: SessionState) -> HostReply {
         result: 0,
         model: game.model.clone().unwrap_or_default(),
         current_skin: game.current,
+        current_form: game.current_form,
+        available_forms: if game.model.as_deref() == Some("Lux") { LuxForm::ALL.to_vec() } else { Vec::new() },
         pending: false,
         render_tid: 1,
         target_pid: MOCK_PID,
@@ -118,18 +122,29 @@ impl Session for MockSession {
         let state = match command {
             Command::Apply(skin) => {
                 game.current = skin;
+                game.current_form = (game.model.as_deref() == Some("Lux") && skin == 7).then_some(LuxForm::Light);
                 game.applied.push(skin);
                 SessionState::Active
             }
             Command::Restore => {
                 game.current = self.original;
+                game.current_form = None;
                 SessionState::Ready
             }
             Command::Stop => {
                 game.current = self.original;
+                game.current_form = None;
                 SessionState::Stopped
             }
             Command::Status | Command::Inspect => self.last.as_ref().map_or(SessionState::Ready, |r| r.state),
+            Command::Form(form) => {
+                if game.model.as_deref() != Some("Lux") || game.current != 7 {
+                    return Err(SessionError::new(HostFailureKind::Other, "当前皮肤不支持该形态", self.last.clone()));
+                }
+                game.current_form = Some(form);
+                game.applied_forms.push(form);
+                SessionState::Active
+            }
         };
         let reply = reply(&game, state);
         self.last = Some(reply.clone());

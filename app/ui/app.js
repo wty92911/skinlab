@@ -92,7 +92,8 @@ function renderHero(s) {
 
   const connected = CONNECTED.has(s.phase);
   let line;
-  if (s.phase === "applying") line = `正在切换到 ${skinName(s.desired_skin) ?? "所选皮肤"}…`;
+  if (s.phase === "applying" && s.desired_form) line = `正在切换到 ${s.forms?.find((form) => form.id === s.desired_form)?.name ?? "所选"}形态…`;
+  else if (s.phase === "applying") line = `正在切换到 ${skinName(s.desired_skin) ?? "所选皮肤"}…`;
   else if (connected && s.current_skin != null) line = `当前：${skinName(s.current_skin) ?? `编号 ${s.current_skin}`}`;
   else if (s.phase === "unsupported" || s.phase === "blocked") line = "未接入 · 不会改动游戏";
   else line = s.message;
@@ -100,7 +101,17 @@ function renderHero(s) {
 
   const restore = $("restore");
   restore.hidden = !connected || s.original_skin == null;
-  restore.disabled = s.phase === "applying" || s.current_skin === s.original_skin;
+  restore.disabled = s.phase === "applying" || (s.current_skin === s.original_skin && (!s.current_form || s.current_form === "Lux"));
+  const forms = s.forms ?? [];
+  $("form-picker").hidden = !connected || s.current_skin !== 7 || forms.length === 0;
+  const picker = $("form-select");
+  const formsKey = forms.map((form) => form.id).join("|");
+  if (picker.dataset.forms !== formsKey) {
+    picker.dataset.forms = formsKey;
+    picker.replaceChildren(...forms.map((form) => el("option", { value: form.id }, form.name)));
+  }
+  picker.value = s.desired_form ?? s.current_form ?? "Lux";
+  picker.disabled = s.phase === "applying";
 }
 
 function renderNotice(s) {
@@ -171,14 +182,15 @@ function card(skin, index) {
     img,
     el("div", { class: "shade" }),
     el("span", { class: "tier" }, label),
-    skin.special ? el("span", { class: "flag", title: flagTip, "aria-label": flagTip }, "!") : null,
+    skin.special && !(state.snapshot.hero.model === "Lux" && skin.id === 7 && state.snapshot.forms?.length)
+      ? el("span", { class: "flag", title: flagTip, "aria-label": flagTip }, "!") : null,
     el("span", { class: "name" }, skin.name),
     el("span", { class: "spinner" }));
 }
 
 function renderGrid(s) {
   if (!s.hero || s.skins.length === 0) return;
-  const key = [s.hero.model, s.skins.length, state.settings.show_art, state.query, state.tier].join("|");
+  const key = [s.hero.model, s.skins.length, state.settings.show_art, state.query, state.tier, s.forms?.length ?? 0].join("|");
   const grid = $("grid");
   const scroller = grid.parentElement;
   if (key !== state.gridKey) {
@@ -271,6 +283,7 @@ async function saveSettings(patch) {
 }
 
 $("open-settings").onclick = () => openSettings(true);
+$("form-select").onchange = (event) => api.invoke("select_form", { form: event.target.value }).catch(console.error);
 $("close-settings").onclick = () => openSettings(false);
 $("sheet-backdrop").onclick = () => openSettings(false);
 $("set-art").onchange = (e) => saveSettings({ show_art: e.target.checked });
@@ -294,7 +307,7 @@ document.addEventListener("keydown", (e) => {
     else if (search.value) { search.value = ""; state.query = ""; render(); }
     return;
   }
-  const typing = e.target instanceof HTMLInputElement;
+  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   if (!typing && !$("tools").hidden && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) search.focus();
 });
 document.addEventListener("contextmenu", (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
