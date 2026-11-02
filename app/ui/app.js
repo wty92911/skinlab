@@ -1,7 +1,7 @@
 // SkinLab UI. All state comes from the Rust controller as `snapshot` events;
 // this file only renders it and forwards clicks.
 
-const api = window.__TAURI__ ? tauriApi() : (await import("./dev-mock.js")).createMock();
+const api = window.__TAURI__ ? tauriApi() : await (await import("./dev-mock.js")).createMock();
 
 function tauriApi() {
   const { invoke } = window.__TAURI__.core;

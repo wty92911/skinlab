@@ -181,6 +181,17 @@ fn prune_session_logs(dir: &Path) {
     }
 }
 
+/// `SKINLAB_DEMO_HERO=Lux` picks the demo champion; otherwise a different one each launch.
+fn demo_hero(catalog: &Catalog) -> String {
+    if let Ok(model) = std::env::var("SKINLAB_DEMO_HERO")
+        && let Some(champion) = catalog.champion(&model)
+    {
+        return champion.id.clone();
+    }
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    catalog.champions[seed as usize % catalog.champions.len()].id.clone()
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let log_dir = app.path().app_log_dir()?;
@@ -204,7 +215,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             catalog.champions.push(FixtureBackend::champion());
             Box::new(FixtureBackend::new(native_bundle(&handle), Some(session_logs)))
         }
-        Mode::Demo => Box::new(MockBackend::demo("Ahri")),
+        Mode::Demo => Box::new(MockBackend::demo(&demo_hero(&catalog))),
     };
     let emitter = handle.clone();
     let controller = Controller::new(backend, catalog, Timing::default())
