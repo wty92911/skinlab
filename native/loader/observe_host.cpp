@@ -133,7 +133,7 @@ struct Host {
             throw std::runtime_error("Target integrity exceeds observer integrity; no hook installed");
         if(!game_mode)check("integrity_preflight_passed_before_hook",observer_integrity>=target_integrity&&observer_integrity!=0);
         local_module=LoadLibraryExW((directory+L"skinlab-observe.dll").c_str(),nullptr,0x100|0x800);os(local_module!=nullptr,"Load local observation DLL");
-        const auto proc=reinterpret_cast<HOOKPROC>(GetProcAddress(local_module,"skinlab_observe_hook"));os(proc!=nullptr,"Resolve observation hook export");
+        const auto proc=reinterpret_cast<HOOKPROC>(reinterpret_cast<void(*)()>(GetProcAddress(local_module,"skinlab_observe_hook")));os(proc!=nullptr,"Resolve observation hook export");
         DWORD owner=0;os(GetWindowThreadProcessId(window,&owner)==tid&&owner==pid&&WaitForSingleObject(process,0)==WAIT_TIMEOUT,"Revalidate target before hook installation");
         hook=SetWindowsHookExW(WH_GETMESSAGE,proc,local_module,tid);os(hook!=nullptr,"Install requested-thread observation hook");hook_removed=false;
     }

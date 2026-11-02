@@ -79,7 +79,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
     std::unique_ptr<GameSession> pending(new GameSession);
     auto* s=pending.get();s->work=work;
     SlSessionFixtureConfig fixture{};fixture.struct_size=sizeof(fixture);
-    const auto provider=reinterpret_cast<SlGetSessionFixture>(GetProcAddress(GetModuleHandleW(nullptr),"skinlab_get_session_fixture"));
+    const auto provider=reinterpret_cast<SlGetSessionFixture>(reinterpret_cast<void(*)()>(GetProcAddress(GetModuleHandleW(nullptr),"skinlab_get_session_fixture")));
     IDXGISwapChain* chain=nullptr;
     if(provider&&provider(&fixture)) {
         s->config=fixture.core;chain=fixture.chain;std::strcpy(s->model,"Fixture");
@@ -95,7 +95,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         const auto player=find("local_player"),stack=find("character_data_stack"),skin=find("skin_id_encoding");
         const auto update=find("character_data_stack_update"),getter=find("material_registry_getter"),swap=find("swap_chain");
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
-        std::strncpy(s->model,out.model_name,sizeof(s->model)-1);
+        std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
         s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second};
         auto& cfg=s->config;cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LEAGUE_EXPERIMENT;
         cfg.layout=s->layout;cfg.object_data=reinterpret_cast<void*>(s->player);cfg.object_size=s->layout.character_stack_offset+skinlab::league::kMinimumStackSkinExtent;
