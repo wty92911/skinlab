@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkinLab</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8" fill="var(--accent)"/>
+          <path d="M16 6.5 24.2 11.25v9.5L16 25.5l-8.2-4.75v-9.5z" fill="var(--on-accent)"/>
+          <path d="M16 11.1 20 13.4v4.6L16 20.4 12 18v-4.6z" fill="var(--accent)"/>
+        </svg>
+        <span class="wordmark">SkinLab</span>
+      </div>
+      <div class="bar-actions">
+        <span class="pill" id="status-pill" data-tone="idle"><i></i><span id="status-label">等待对局</span></span>
+        <button class="icon-btn" id="open-settings" title="设置" aria-label="设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.86 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.65 0-1.25.4-1.51 1Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="hero" id="hero" hidden>
+      <div class="portrait" id="hero-portrait"><span id="hero-initial"></span></div>
+      <div class="hero-text">
+        <h1 id="hero-name"></h1>
+        <p class="hero-sub">
+          <span id="hero-current"></span>
+          <button class="link" id="restore" hidden>恢复原皮</button>
+        </p>
+      </div>
+    </section>
+
+    <div class="notice" id="notice" hidden></div>
+
+    <section class="tools" id="tools" hidden>
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search" type="search" placeholder="搜索皮肤" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="chips" id="filters" role="tablist" aria-label="稀有度"></div>
+    </section>
+
+    <main class="content">
+      <div class="grid" id="grid" hidden></div>
+      <div class="empty" id="empty">
+        <div class="empty-art" id="empty-art"></div>
+        <h2 id="empty-title">请先打开游戏</h2>
+        <p id="empty-body">进入对局后，SkinLab 会自动识别你的英雄。</p>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <span id="hotkey-hint"><kbd>Insert</kbd> 显示／隐藏</span>
+      <span id="foot-meta"></span>
+    </footer>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+  <aside class="sheet" id="settings" aria-hidden="true" aria-label="设置">
+    <div class="sheet-head">
+      <h2>设置</h2>
+      <button class="icon-btn" id="close-settings" aria-label="关闭">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <label class="toggle">
+      <span><b>显示皮肤原画</b><small>从英雄联盟官网 CDN 加载头像与原画</small></span>
+      <input type="checkbox" id="set-art"><i></i>
+    </label>
+    <label class="toggle">
+      <span><b>窗口置顶</b><small>在无边框窗口模式下停留在游戏上方</small></span>
+      <input type="checkbox" id="set-top"><i></i>
+    </label>
+    <button class="row-btn" id="open-logs">打开日志文件夹</button>
+    <dl class="about" id="about"></dl>
+    <p class="fine">SkinLab 只在本机修改外观，其他玩家看不到。修改游戏内存违反游戏用户协议，存在账号处罚风险，SkinLab 不提供任何免封保证。</p>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

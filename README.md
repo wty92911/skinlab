@@ -1,63 +1,60 @@
 # SkinLab
 
-Windows x64 的本地外观切换实验项目。当前版本 0.3.2：自动显示对局英雄，皮肤下拉选择即生效，Insert 显示／隐藏窗口；启动时请求管理员权限。没有对局时提示打开游戏，关闭窗口时请求恢复原皮并停止会话。
+Windows x64 的本地外观切换实验项目。当前版本 0.4.0：Rust + Tauri 桌面应用，自动识别对局英雄，点击皮肤卡片即生效，Insert 显示／隐藏窗口；启动时请求管理员权限。没有对局时提示打开游戏，关闭窗口时恢复原皮并停止会话。
 
-普通皮肤使用共用更新流程。基础换肤已完成实际对局验证，用户也抽样验证了多个英雄；特殊模型／多形态皮肤仍需适配，全部选项可选不代表全部特殊行为已实现。项目没有免封保证。
+普通皮肤使用共用更新流程。基础换肤已完成实际对局验证，用户也抽样验证了多个英雄；终极／多形态皮肤在界面上标注 `!`，特殊形态仍需适配，可选不代表特殊行为已实现。修改游戏内存违反游戏用户协议，项目没有免封保证。
 
-## 在 Windows 构建和启动
+## 结构
 
-需要 Python 3.10+（含 Tkinter）及 x64 MinGW-w64 GCC（C++17）。Python 运行部分只有标准库依赖；不需要 REA、原始换肤软件或 DLL 样本。
+```
+crates/skinlab-core     目录、已适配构建、Live Client 解析、host 协议、错误分类（纯逻辑，无平台依赖）
+crates/skinlab-session  游戏发现、构建校验、host 进程驱动、自动接入状态机；含 WARP fixture 与内存 mock 后端
+app/                    Tauri 2 外壳（Rust）与界面（app/ui，原生 HTML/CSS/JS，无构建步骤）
+xtask/                  维护任务：原生构建、目录更新、构建标识、fixture 端到端检查
+native/                 C++ host、会话 DLL、DX11 帧桥接、运行时特征扫描、WARP 测试窗口
+data/catalog.json       随版本发布的皮肤目录（名称 ↔ 编号）
+data/builds.json        已完成适配验证的游戏构建（版本 + SHA256）
+```
+
+运行时链路：`SkinLab.exe` → `skinlab-observe-host.exe --session`（stdin/stdout JSON 行协议）→ 游戏内 `skinlab-observe.dll`（共享内存命令，DX11 帧线程执行）。
+
+## 在 Windows 构建
+
+需要 Rust stable（MSVC 工具链）、x64 MinGW-w64 g++（编译 `native/`）和 Node.js（只用于 `npx @tauri-apps/cli` 打包安装程序）。
 
 ```powershell
 git clone https://github.com/wty92911/skinlab.git
 cd skinlab
-python -m venv .venv
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-session.ps1 -Compiler "C:/你的工具链/bin/g++.exe"
-.\skinlab.cmd
+cargo xtask native            # 产物写入 out/session/，索引 out/current.json
+cargo xtask verify            # host 自检 + 控制器驱动自建 WARP 窗口，不连接游戏
+cargo run -p skinlab          # 开发运行（需管理员终端，或接受 UAC）
+cd app; npx @tauri-apps/cli@2 build   # NSIS 安装包：target/release/bundle/nsis/
 ```
 
-编译器已在 PATH 时可省略 `-Compiler`。构建脚本会核对 x64 目标，产物写入 `out/session/`，当前产物索引为 `out/current.json`。已载入旧 DLL 时可使用 `-Bundle session-dev1` 构建到新目录。
+`cargo xtask native --compiler <g++ 路径>` 可指定编译器；已载入旧 DLL 时用 `--bundle session-dev1` 构建到新目录。游戏安装位置不再需要配置：SkinLab 从运行中的进程读取路径，以 `data/builds.json` 中的 SHA256 确认版本。
 
-也可以双击 `SkinLab.pyw` 或运行 `python -m skinlab`。`skinlab-native.cmd` 是兼容启动别名。Windows UAC 提示仍需用户确认。
+`cargo run -p skinlab -- --fixture` 用真实原生链路驱动自建 WARP 窗口；`-- --demo`（非 Windows 默认）使用内存后端，便于在任何系统上调整界面。只改样式时也可以直接用静态服务器打开 `app/ui/`，页面会自动载入 `dev-mock.js`（`?phase=ready|no_game|waiting_hero|unsupported|blocked`）。
 
-当前适配的国服 EXE 为 `16.21.832.5350`，SHA256：
+## 检查
 
-```text
-8dd49307106f45f65288425ce5291b9de4d0ad50e721d9255c0f63b888baf0ee
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
-当前安装路径为 `C:/WeGameApps/英雄联盟/Game/League of Legends.exe`。更换安装位置时，需要同步修改 `skinlab/native_controller.py` 中的 `GAME` 和 `native/loader/observe_host.cpp` 中的路径检查，再重新构建。可配置路径列入后续 TODO。
+CI（`.github/workflows/ci.yml`）在 Linux 上跑以上检查，在 Windows 上构建原生产物、运行 `cargo xtask verify` 并打包安装程序。
 
-## 目录数据
+## 目录与适配
 
-`skinlab/data/catalog.json` 随源码和版本一起发布，当前包含 173 个英雄、2138 个基础皮肤款式。它只保存名称、编号等信息，不包含模型、纹理或皮肤资源。运行时直接读取本地文件，不联网检查更新，也不使用旧的 `local-data` 目录缓存。
+目录的作用是把显示名称映射为引擎使用的非连续皮肤编号；它随版本发布，运行时不联网更新。维护者发版前运行 `cargo xtask update-catalog`，从腾讯英雄联盟官网公开数据刷新并同步生成 `native/loader/skin_catalog_generated.h`。
 
-目录的作用是把“显示名称”映射为引擎使用的“皮肤编号”；编号并不连续，不能直接用下拉列表序号替代。目录更新和游戏二进制适配是两件事。游戏升级但没有新皮肤时可能只需更新二进制适配；新增皮肤时再更新目录并发新版。
+界面中的头像与原画从官网 CDN 按需加载，可在设置中关闭；关闭后显示文字占位。
 
-维护者在准备发版时运行：
+目录更新和游戏二进制适配是两件事。游戏升级后按 `docs/ADAPTATION.md` 适配，确认后用 `cargo xtask build-id <EXE>` 生成条目写入 `data/builds.json`。未登记的构建会显示“游戏版本尚未适配”，不会加载 DLL。
 
-```powershell
-python scripts/update_catalog.py
-```
+## 其他
 
-脚本从腾讯英雄联盟官网的公开数据获取目录，排除独立炫彩条目，写回仓库内的 JSON；构建时同步生成原生编号表。数据来源见 JSON 的 `source` 字段。客户端只通过本机 Live Client API 辅助识别当前英雄。
-
-## 代码结构与检查
-
-- `skinlab/`：精简界面、当前英雄识别、目录与会话控制。
-- `native/src/`：皮肤状态事务、DX11 帧桥接、运行时特征扫描。
-- `native/loader/`：Windows 会话加载及跨进程命令协议。
-- `native/lab/observe_fixture.cpp`：自建 WARP 测试目标。
-- `scripts/`：构建、维护目录和已有的离线流程检查。
-- `docs/ADAPTATION.md`：游戏更新后如何适配；`docs/TODO.md`：待办与当前范围。
-
-```powershell
-python -m unittest discover -s tests
-python scripts/verify_compact.py
-```
-
-第二条需要先构建，创建本项目自己的隐藏 WARP 进程，检查识别、选择、恢复与关闭流程；不连接游戏。没有持续维护测试台账的要求，按实际变更运行现有相关检查即可。原生构建和真实游戏验证在 Windows 上进行，其他终端可以编辑代码、维护目录和文档。
-
-DLL 保存在项目产物目录，不写入 LoL／WeGame 文件夹。停止后模块和帧桥接保留至对局进程退出；当前不实现运行中热卸载。同一对局主动停止后暂不支持重新接入。
-
-原始软件、第三方 DLL 样本、分析工具、历史研究和个人日志不进入仓库；旧研究仅在本机 `.archive/` 中保留。当前仓库未指定开源许可证。
+- 日志：`%LOCALAPPDATA%\io.github.wty92911.skinlab\logs\`（按天滚动保留 7 天；`sessions/` 保留最近 30 次会话的 JSONL）。设置中可直接打开。
+- DLL 保存在安装目录，不写入 LoL／WeGame 文件夹。停止后模块和帧桥接保留至对局进程退出；不实现运行中热卸载。同一对局主动停止后不支持重新接入。
+- 原始软件、第三方 DLL 样本、分析工具、历史研究和个人日志不进入仓库。当前仓库未指定开源许可证。

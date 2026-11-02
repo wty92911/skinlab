@@ -1,0 +1,15 @@
+[package]
+name = "skinlab-core"
+description = "Platform-independent SkinLab data: catalog, supported builds, host protocol."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -17,7 +17,8 @@
 #include <climits>
 
 namespace {
-constexpr wchar_t game_path[]=L"C:\\WeGameApps\\\u82f1\u96c4\u8054\u76df\\Game\\League of Legends.exe";
+// Any install location; identity comes from the disk SHA256 the controller expects.
+constexpr wchar_t game_image_name[]=L"League of Legends.exe";
 struct Check {std::string name;bool passed;};std::vector<Check> checks;
 SlObserveShared observation{};bool have_observation=false,game_mode=false,hook_removed=false;
 
@@ -74,7 +75,7 @@ struct Host {
         if(game_pid) {
             pid=game_pid;
             process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,pid);os(process!=nullptr,"Open requested game for identity/wait only");
-            validate_process(game_path,expected_sha);
+            validate_process(std::wstring(),expected_sha);
         } else {
             const auto target=directory+L"skinlab-observe-fixture.exe";
             job=CreateJobObjectW(nullptr,nullptr);os(job!=nullptr,"Create owned-child cleanup job");
@@ -112,10 +113,15 @@ struct Host {
     } catch(...){cleanup();throw;} }
     void validate_process(const std::wstring& expected,const std::string& expected_sha) {
         wchar_t path[32768];DWORD units=32768;os(QueryFullProcessImageNameW(process,0,path,&units)!=0,"Read requested process image path");
-        if(_wcsicmp(std::wstring(path,units).c_str(),expected.c_str())!=0)
+        const std::wstring image(path,units);
+        // Game: the running image under its own name, wherever installed. Fixture: the exact owned path.
+        const auto slash=image.find_last_of(L"\\/");
+        const std::wstring leaf=slash==std::wstring::npos?image:image.substr(slash+1);
+        if(expected.empty()?_wcsicmp(leaf.c_str(),game_image_name)!=0:_wcsicmp(image.c_str(),expected.c_str())!=0)
             throw std::runtime_error("Requested PID does not have the exact allowed image path");
+        if(expected.empty()&&expected_sha.empty())throw std::runtime_error("Game observation requires an expected disk SHA256");
         BOOL wow64=FALSE;os(IsWow64Process(process,&wow64)!=0&&!wow64,"Require an x64 target");
-        image_file=CreateFileW(expected.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+        image_file=CreateFileW(image.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
         os(image_file!=INVALID_HANDLE_VALUE,"Open allowed target image for stable hash");
         target_sha=sha256(image_file);
         if(!expected_sha.empty()&&target_sha!=expected_sha)throw std::runtime_error("Target disk SHA256 does not match the explicitly expected build");

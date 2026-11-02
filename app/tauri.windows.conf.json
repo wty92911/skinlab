@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../out/session/skinlab-observe-host.exe": "native/skinlab-observe-host.exe",
+      "../out/session/skinlab-observe.dll": "native/skinlab-observe.dll",
+      "../out/session/skinlab-observe-fixture.exe": "native/skinlab-observe-fixture.exe",
+      "../out/session/build-manifest.json": "native/build-manifest.json"
+    }
+  }
+}

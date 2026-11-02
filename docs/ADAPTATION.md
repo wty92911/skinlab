@@ -1,12 +1,13 @@
 # 游戏更新后的适配
 
-目录名称／编号更新和原生引擎适配分别维护。目录由 `scripts/update_catalog.py` 在发版时更新；不要把目录版本当成 EXE 兼容性证明。
+目录名称／编号更新和原生引擎适配分别维护。目录由 `cargo xtask update-catalog` 在发版时更新；不要把目录版本当成 EXE 兼容性证明。
 
 ## 相关代码
 
 | 位置 | 作用 |
 | --- | --- |
-| `skinlab/native_controller.py` | 游戏路径、适配的磁盘 SHA256、当前构建产物索引 |
+| `data/builds.json` | 已适配构建的版本与磁盘 SHA256；用 `cargo xtask build-id <EXE>` 生成条目 |
+| `crates/skinlab-core/src/protocol.rs` | host 会话 JSON 协议的 Rust 端定义 |
 | `native/src/profile_rules_generated.cpp` | 已恢复并提交的机器码特征与解析配方；构建直接使用，无需原 DLL |
 | `native/src/profile_scan.cpp` | 匹配特征、解析 RIP 相对位移／字段偏移／编码参数 |
 | `native/include/skinlab/league_fields.h` | CharacterDataStack 内部成员偏移 |
@@ -21,7 +22,7 @@
 3. 失效规则应从原函数上下文、调用者和访问字段的指令重新定位。读出 RIP 相对位移、字段立即数及旋转／异或参数，更新特征和解析逻辑。无法确定的字段不要用旧值猜测。提交的规则文件虽叫 generated，后续可以维护其内容；重新提取脚本不是构建依赖。
 4. 分清三类数字：RVA 加模块基址得到全局变量／函数；对象偏移加对象地址得到成员；指令内的字节位置用于解析立即数，两者不能混用。`league_fields.h` 的模型指针和 stack 皮肤成员属于结构成员，需要独立确认。
 5. 核对本地玩家指针、模型名及两个皮肤字段的一致性，核对编解码互逆、stack 更新调用约定和交换链所有权。刷新应在实际帧线程上执行；不要让 UI 或采集线程直接调用引擎更新函数。
-6. 完成代码适配后再更新 `VERIFIED_GAME_SHA256` 和 README 中的构建身份。重新构建，运行已有 Python 检查及自建 WARP 流程；与用户安排训练模式，抽样确认应用、恢复、技能外观和退出行为。
+6. 完成代码适配后再把 `cargo xtask build-id` 的输出加入 `data/builds.json`（旧构建条目保留到确认不再需要）。重新构建，运行 `cargo test --workspace` 与 `cargo xtask verify`；与用户安排训练模式，抽样确认应用、恢复、技能外观和退出行为。
 7. 更新当前支持范围和 TODO，提交相关代码及目录数据。不要新增逐英雄测试台账，也不要把本地样本／分析报告上传仓库。未完成真实验证时如实说明。
 
 旧版地址只是某个构建的结果，ASLR 下不能直接拿它当绝对地址。当前方案通过运行时代码特征计算所需参数，仍需人工／Agent 对版本变化作判断，不具备全自动跨版本兼容能力。不要通过关闭或绕过反作弊来完成适配。

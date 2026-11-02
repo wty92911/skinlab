@@ -1,0 +1,20 @@
+[package]
+name = "xtask"
+description = "Maintainer tasks: native build, catalog refresh, fixture verification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+skinlab-core.workspace = true
+skinlab-session.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+native-tls = "0.2"
+ureq = { version = "2", default-features = false, features = ["native-tls"] }
+
+[lints]
+workspace = true

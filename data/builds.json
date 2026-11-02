@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "builds": [
+    {
+      "version": "16.21.832.5350",
+      "region": "cn",
+      "sha256": "8dd49307106f45f65288425ce5291b9de4d0ad50e721d9255c0f63b888baf0ee"
+    }
+  ]
+}
