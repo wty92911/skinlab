@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! `cargo xtask <task>` — maintainer tasks. Run from anywhere in the repository.
 
 mod catalog;

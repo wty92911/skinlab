@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>

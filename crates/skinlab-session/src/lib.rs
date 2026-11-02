@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Everything between the UI and the native host: finding the game, checking
 //! its build, driving `skinlab-observe-host.exe`, and the auto-connect loop.
 

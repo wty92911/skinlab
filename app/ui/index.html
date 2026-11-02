@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -77,10 +78,31 @@
       <span><b>窗口置顶</b><small>在无边框窗口模式下停留在游戏上方</small></span>
       <input type="checkbox" id="set-top"><i></i>
     </label>
-    <button class="row-btn" id="open-logs">打开日志文件夹</button>
+    <div class="row-pair">
+      <button class="row-btn" id="open-logs">打开日志文件夹</button>
+      <button class="row-btn" id="open-repo">项目主页</button>
+    </div>
     <dl class="about" id="about"></dl>
-    <p class="fine">SkinLab 只在本机修改外观，其他玩家看不到。修改游戏内存违反游戏用户协议，存在账号处罚风险，SkinLab 不提供任何免封保证。</p>
+    <p class="fine">SkinLab 是源码公开的学习研究项目，与 Riot Games、腾讯无关。外观只在本机生效，其他玩家看不到。修改游戏内存违反游戏用户协议，存在账号处罚风险，不提供任何免封保证。喜欢的皮肤请在游戏内购买正版。禁止任何商业使用。</p>
   </aside>
+
+  <div class="modal-backdrop" id="notice-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="notice-title">
+      <h2 id="notice-title">使用前请阅读</h2>
+      <ul class="notice-list">
+        <li><b>学习研究用途。</b>SkinLab 是源码公开的个人学习项目，用于研究游戏客户端的数据结构与渲染流程，不是商业产品，不提供任何付费服务。</li>
+        <li><b>只在本机生效。</b>外观改动只有你自己能看到，不影响其他玩家与对局。</li>
+        <li><b>存在封号风险。</b>修改游戏内存违反《英雄联盟》用户协议，账号可能受到处罚。SkinLab 不提供任何免封保证，风险由你自行承担。</li>
+        <li><b>支持正版。</b>体验后如果喜欢某款皮肤，请在游戏内购买官方正版。</li>
+        <li><b>禁止商业使用。</b>依据 PolyForm Noncommercial 1.0.0 许可，不得售卖、付费分发、捆绑推广或用于任何商业目的。</li>
+        <li>本项目与 Riot Games、腾讯无关，相关商标与美术资源归其各自所有者。</li>
+      </ul>
+      <div class="modal-actions">
+        <button class="btn" id="notice-quit">退出</button>
+        <button class="btn primary" id="notice-accept">我已了解，继续</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>

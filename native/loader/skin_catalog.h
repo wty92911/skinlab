@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SKINLAB_SKIN_CATALOG_H
 #define SKINLAB_SKIN_CATALOG_H
 #include "skin_catalog_generated.h"

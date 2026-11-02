@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Classifies native host failures into kinds the controller can act on, and
 //! the Chinese message shown to the player. The host speaks English
 //! diagnostics; this table is the only place that knows their wording.

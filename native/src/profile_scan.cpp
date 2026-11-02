@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #include <skinlab/profile_scan.h>
 #include <algorithm>
 #include <chrono>

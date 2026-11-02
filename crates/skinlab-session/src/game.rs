@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Game discovery and the two native backends: the real game and SkinLab's
 //! own WARP fixture. The install location is read from the running process,
 //! so no path is configured anywhere.

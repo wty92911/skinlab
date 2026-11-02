@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Parsing for the game's local Live Client API (`https://127.0.0.1:2999`).
 
 use serde::{Deserialize, Serialize};

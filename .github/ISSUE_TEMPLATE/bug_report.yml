@@ -1,0 +1,42 @@
+name: 问题反馈
+description: 应用报错、无法接入、皮肤显示异常等
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请勿上传账号信息、游戏文件或第三方软件。反作弊规避、封号申诉等问题不在本项目范围内。
+  - type: input
+    id: skinlab
+    attributes:
+      label: SkinLab 版本
+      description: 设置 → 版本（含提交号）
+      placeholder: 0.4.0 · 7ad1395
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: 游戏版本
+      description: 界面底部或设置中显示的游戏版本
+      placeholder: 16.21.832.5350
+    validations:
+      required: true
+  - type: input
+    id: champion
+    attributes:
+      label: 英雄与皮肤
+      placeholder: 阿狸 / 星之守护者 阿狸
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 操作步骤、界面提示的原文、预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 设置 → 打开日志文件夹，附上当天的 skinlab.*.log 相关片段（请先检查不含个人信息）
+      render: text

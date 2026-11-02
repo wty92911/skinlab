@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SKINLAB_OBSERVE_HASH_H
 #define SKINLAB_OBSERVE_HASH_H
 #include <skinlab/profile_scan.h>

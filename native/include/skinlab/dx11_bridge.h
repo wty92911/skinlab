@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SKINLAB_DX11_BRIDGE_H
 #define SKINLAB_DX11_BRIDGE_H
 #include <dxgi1_2.h>

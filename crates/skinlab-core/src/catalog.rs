@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Release-shipped skin names and numbers. Maps display names to the engine's
 //! non-contiguous skin numbers; it says nothing about runtime compatibility.
 
@@ -200,7 +201,8 @@ impl Catalog {
         }
         let numbers: Vec<String> = numbers.iter().map(u32::to_string).collect();
         let mut out = vec![
-            "// Generated from the public catalog. Availability is not a test result.".to_string(),
+            "// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0".to_string(),
+            "// Generated from the public catalog. Availability is not a test result.".into(),
             format!("// Source SHA256: {source_sha256}"),
             "#ifndef SKINLAB_CATALOG_GENERATED_H".into(),
             "#define SKINLAB_CATALOG_GENERATED_H".into(),

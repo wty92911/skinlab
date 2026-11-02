@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Per-user preferences, stored as JSON in the app config directory.
 
 use serde::{Deserialize, Serialize};
@@ -9,11 +10,13 @@ pub struct Settings {
     /// Load champion and skin art from the CN website CDN.
     pub show_art: bool,
     pub always_on_top: bool,
+    /// Version of the usage notice the user acknowledged; 0 means never.
+    pub notice_accepted: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { show_art: true, always_on_top: false }
+        Settings { show_art: true, always_on_top: false, notice_accepted: 0 }
     }
 }
 
@@ -39,6 +42,6 @@ mod tests {
     #[test]
     fn missing_fields_take_defaults() {
         let settings: Settings = serde_json::from_str(r#"{"always_on_top":true}"#).unwrap();
-        assert_eq!(settings, Settings { show_art: true, always_on_top: true });
+        assert_eq!(settings, Settings { show_art: true, always_on_top: true, notice_accepted: 0 });
     }
 }

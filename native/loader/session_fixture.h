@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SKINLAB_SESSION_FIXTURE_H
 #define SKINLAB_SESSION_FIXTURE_H
 #include <skinlab/dx11_bridge.h>

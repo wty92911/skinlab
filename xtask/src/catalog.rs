@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Catalog refresh from the CN website's public champion data. The result is
 //! reviewed and shipped with a release; the app never fetches it at runtime.
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Generated from the public catalog. Availability is not a test result.
 // Source SHA256: f0c51f674697a129d89474f59a5aeb3f728f21ab06df40501e869f2405dcb939
 #ifndef SKINLAB_CATALOG_GENERATED_H

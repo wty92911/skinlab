@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Browser-only stand-in for the Tauri backend, so the UI can be styled with a
 // plain static server. Never loaded inside the app (window.__TAURI__ exists).
 //
@@ -5,6 +6,8 @@
 // loads; otherwise a built-in Ahri sample is used.
 //   ?hero=Lux      start with a given champion (engine id)
 //   ?phase=ready|no_game|waiting_hero|unsupported|blocked   start in a fixed state
+//   ?shot          hide the picker (README screenshots)
+//   ?notice        show the first-run usage notice
 // A small picker in the corner switches champions like a new match would.
 
 const SAMPLE = {
@@ -60,7 +63,7 @@ export async function createMock() {
   const params = new URLSearchParams(location.search);
   const listeners = [];
   const version = "16.21.832.5350";
-  let settings = { show_art: true, always_on_top: false };
+  let settings = { show_art: true, always_on_top: false, notice_accepted: params.has("notice") ? 0 : 1 };
   let snap = {
     phase: "no_game", message: "请先打开游戏", hero: null, skins: [], current_skin: null, original_skin: null,
     desired_skin: null, game_version: null, catalog_version: catalog.version,
@@ -98,7 +101,7 @@ export async function createMock() {
   else if (phase === "blocked") snap = { ...snap, phase: "blocked", message: "游戏权限高于 SkinLab，请以管理员身份重新打开", game_version: version };
   else if (phase !== "no_game") setTimeout(() => playMatch(start), 1200);
 
-  mountPicker(champions, start, (champion) => playMatch(champion, true));
+  if (!params.has("shot")) mountPicker(champions, start, (champion) => playMatch(champion, true));
 
   const apply = async (skin, done) => {
     emit({ phase: "applying", message: "正在切换…", desired_skin: skin });
@@ -110,7 +113,8 @@ export async function createMock() {
     get_settings: () => settings,
     set_settings: ({ settings: next }) => { settings = next; },
     app_info: () => ({
-      version: "0.4.0", mode: "demo", hotkey: true, catalog_version: catalog.version,
+      version: "0.4.0", commit: "dev", repository: "https://github.com/wty92911/skinlab",
+      license: "PolyForm Noncommercial 1.0.0", notice_version: 1, mode: "demo", hotkey: true, catalog_version: catalog.version,
       champions: catalog.champions.length, skins: catalog.champions.reduce((n, c) => n + c.skins.length, 0),
       supported_builds: [version],
     }),
@@ -118,6 +122,9 @@ export async function createMock() {
     restore_skin: () => { apply(snap.original_skin, "已恢复原皮"); },
     refresh: () => {},
     open_logs: () => {},
+    accept_notice: () => { settings = { ...settings, notice_accepted: 1 }; },
+    quit_app: () => {},
+    open_repository: () => window.open("https://github.com/wty92911/skinlab", "_blank"),
   };
   return {
     invoke: async (name, args) => handlers[name](args ?? {}),

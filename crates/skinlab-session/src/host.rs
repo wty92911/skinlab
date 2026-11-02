@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Child-process transport for `skinlab-observe-host.exe --session`.
 
 use crate::backend::{Session, SessionError};

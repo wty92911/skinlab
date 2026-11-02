@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SKINLAB_API_H
 #define SKINLAB_API_H
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! In-memory backend for controller tests and UI development on any OS.
 //! It never starts a process.
 

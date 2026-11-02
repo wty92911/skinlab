@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Reads the game's local Live Client API. Loopback only; never touches the game process.
 
 use skinlab_core::live::{ActiveHero, LIVE_CLIENT_BASE, Player, active_hero};

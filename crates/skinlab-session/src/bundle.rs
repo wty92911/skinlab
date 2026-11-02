@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! The native artifacts built by `cargo xtask native`, verified against their
 //! build manifest before every connect.
 

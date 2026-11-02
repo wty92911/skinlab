@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Platform-independent SkinLab data. Nothing here touches a process, a file
 //! outside the embedded data, or the network.
 

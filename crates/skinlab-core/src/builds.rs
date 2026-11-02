@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Game builds whose native adaptation has been verified. A build is added
 //! here only after following `docs/ADAPTATION.md`, never by hash alone.
 

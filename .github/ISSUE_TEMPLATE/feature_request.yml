@@ -1,0 +1,14 @@
+name: 建议
+description: 界面、交互或工程方面的改进建议
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: 只接受本机外观相关的建议；规避检测、影响其他玩家或商业化相关的请求会被关闭。
+  - type: textarea
+    id: idea
+    attributes:
+      label: 建议内容
+      description: 想解决什么问题，期望的效果
+    validations:
+      required: true

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Included inside observe_hook.cpp's private namespace, after Work/copy_text.
 // Shared object identity and refresh callback for a live session.
 struct SessionBinding {

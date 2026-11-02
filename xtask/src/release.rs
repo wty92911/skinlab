@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Versioning and release notes. The workspace version in the root Cargo.toml
 //! is the single source; Tauri reads it for the installer.
 

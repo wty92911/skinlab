@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Line protocol spoken by `skinlab-observe-host.exe --session`: one command
 //! per stdin line, one JSON reply per stdout line.
 

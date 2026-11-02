@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #ifndef SKINLAB_LEAGUE_FIELDS_H
 #define SKINLAB_LEAGUE_FIELDS_H
 #include <cstdint>

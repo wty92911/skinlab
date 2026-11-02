@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod settings;
@@ -15,6 +16,10 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(20);
+/// Bump when the usage notice text changes so users see it again.
+const NOTICE_VERSION: u32 = 1;
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+const LICENSE: &str = "PolyForm Noncommercial 1.0.0";
 const KEEP_SESSION_LOGS: usize = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -55,6 +60,10 @@ struct AppState {
 #[derive(serde::Serialize)]
 struct AppInfo {
     version: &'static str,
+    commit: &'static str,
+    repository: &'static str,
+    license: &'static str,
+    notice_version: u32,
     mode: Mode,
     hotkey: bool,
     catalog_version: String,
@@ -88,6 +97,10 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
     let catalog = Catalog::embedded();
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
+        commit: env!("SKINLAB_COMMIT"),
+        repository: REPOSITORY,
+        license: LICENSE,
+        notice_version: NOTICE_VERSION,
         mode: state.mode,
         hotkey: state.hotkey,
         champions: catalog.champions.len(),
@@ -103,11 +116,37 @@ fn get_settings(state: tauri::State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn set_settings(app: AppHandle, state: tauri::State<'_, AppState>, settings: Settings) -> Result<(), String> {
+fn set_settings(app: AppHandle, state: tauri::State<'_, AppState>, mut settings: Settings) -> Result<(), String> {
+    // Only `accept_notice` records acknowledgement; a stale UI copy cannot undo it.
+    settings.notice_accepted = state.settings.lock().expect("settings lock").notice_accepted;
     apply_window_settings(&app, &settings);
     settings.save(&state.settings_path).map_err(|e| format!("无法保存设置：{e}"))?;
     *state.settings.lock().expect("settings lock") = settings;
     Ok(())
+}
+
+/// Records that the usage notice was read, then lets the controller connect.
+#[tauri::command]
+fn accept_notice(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut settings = state.settings.lock().expect("settings lock");
+    settings.notice_accepted = NOTICE_VERSION;
+    settings.save(&state.settings_path).map_err(|e| format!("无法保存设置：{e}"))?;
+    state.controller.set_paused(false);
+    Ok(())
+}
+
+/// Same path as closing the window: restore, stop, exit.
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.close();
+    }
+}
+
+#[tauri::command]
+fn open_repository() -> Result<(), String> {
+    let opener = if cfg!(windows) { "explorer" } else { "open" };
+    std::process::Command::new(opener).arg(REPOSITORY).spawn().map(drop).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -219,6 +258,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     };
     let emitter = handle.clone();
     let controller = Controller::new(backend, catalog, Timing::default())
+        .paused(settings.notice_accepted < NOTICE_VERSION)
         .on_change(move |snapshot| {
             let _ = emitter.emit("snapshot", snapshot);
         })
@@ -265,6 +305,9 @@ fn main() {
             app_info,
             get_settings,
             set_settings,
+            accept_notice,
+            quit_app,
+            open_repository,
             open_logs
         ])
         .on_window_event(|window, event| {

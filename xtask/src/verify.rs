@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! End-to-end checks against SkinLab's own hidden WARP process. Never touches the game.
 
 use anyhow::Result;

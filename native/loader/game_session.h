@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Shared command queue. Commands: 1=apply, 2=restore, 3=restore-and-stop.
 // States: 0=starting, 1=ready, 2=active, 3=stopped, 4=recovery, 5=target changed.
 struct GameSession:SessionBinding {

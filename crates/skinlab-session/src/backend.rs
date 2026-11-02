@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! The seam between the controller and the platform. The real backend talks to
 //! the game; the fixture backend to SkinLab's own WARP window; the mock backend
 //! to nothing at all (UI development and tests).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Recovered pattern recipes; maintained in source for future adaptations.
 // Factual pattern/recipe transcription, not a compatibility profile.
 #include <skinlab/profile_scan.h>

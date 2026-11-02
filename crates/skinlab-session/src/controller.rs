@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Auto-connect state machine: find the single running game, wait for the
 //! champion, connect once, apply the latest selection, restore on exit.
 //!
@@ -86,6 +87,9 @@ pub enum Request {
     Restore,
     /// Rescan now instead of waiting for the next tick.
     Refresh,
+    /// While paused the controller never connects (e.g. before the user has
+    /// acknowledged the usage notice). An existing session is left alone.
+    SetPaused(bool),
     /// Restore, stop and exit the controller thread; replies when done.
     Shutdown(Sender<()>),
 }
@@ -102,6 +106,7 @@ pub struct Controller {
     retry_at: Option<Instant>,
     blocked: Option<u32>,
     restore_requested: bool,
+    paused: bool,
     snapshot: Snapshot,
     shared: Arc<Mutex<Snapshot>>,
     notify: Notify,
@@ -128,6 +133,10 @@ impl ControllerHandle {
 
     pub fn refresh(&self) {
         let _ = self.sender.send(Request::Refresh);
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        let _ = self.sender.send(Request::SetPaused(paused));
     }
 
     /// Restores the original skin and stops the session. Returns once the
@@ -161,6 +170,7 @@ impl Controller {
             retry_at: None,
             blocked: None,
             restore_requested: false,
+            paused: false,
             shared: Arc::new(Mutex::new(snapshot.clone())),
             snapshot,
             notify: Box::new(|_| {}),
@@ -169,6 +179,12 @@ impl Controller {
 
     pub fn on_change(mut self, notify: impl FnMut(&Snapshot) + Send + 'static) -> Self {
         self.notify = Box::new(notify);
+        self
+    }
+
+    /// Starts without connecting until `set_paused(false)`.
+    pub fn paused(mut self, paused: bool) -> Self {
+        self.paused = paused;
         self
     }
 
@@ -205,6 +221,10 @@ impl Controller {
                     Request::Select(skin) => self.select(skin),
                     Request::Restore => self.restore_requested = true,
                     Request::Refresh => tick = true,
+                    Request::SetPaused(paused) => {
+                        self.paused = paused;
+                        tick = true;
+                    }
                     Request::Shutdown(done) => {
                         self.shutdown();
                         let _ = done.send(());
@@ -262,6 +282,9 @@ impl Controller {
 
     /// One discovery pass. Public for tests; the controller thread calls it on a timer.
     pub fn tick(&mut self) {
+        if self.paused && self.session.is_none() {
+            return;
+        }
         let pids = self.backend.game_pids();
         let single = (pids.len() == 1).then(|| pids[0]);
 
@@ -531,6 +554,17 @@ mod tests {
         let mut c = controller(&game);
         c.tick();
         assert_eq!(c.snapshot().phase, Phase::WaitingHero);
+        c.tick();
+        assert_eq!(c.snapshot().phase, Phase::Ready);
+    }
+
+    #[test]
+    fn paused_controller_does_not_connect() {
+        let game = MockGame::shared(Some("Ahri"));
+        let mut c = controller(&game).paused(true);
+        c.tick();
+        assert_eq!((c.snapshot().phase, game.lock().unwrap().connects), (Phase::NoGame, 0));
+        c.paused = false;
         c.tick();
         assert_eq!(c.snapshot().phase, Phase::Ready);
     }

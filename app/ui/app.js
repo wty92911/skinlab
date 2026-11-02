@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // SkinLab UI. All state comes from the Rust controller as `snapshot` events;
 // this file only renders it and forwards clicks.
 
@@ -236,11 +237,14 @@ function renderAbout() {
   const info = state.info;
   if (!info) return;
   const modes = { game: "游戏", fixture: "自建测试窗口", demo: "演示" };
+  const repo = el("a", { onclick: () => api.invoke("open_repository").catch(console.error) }, info.repository.replace(/^https:\/\//, ""));
   const rows = [
-    ["版本", `SkinLab ${info.version}`],
+    ["版本", `SkinLab ${info.version} · ${info.commit}`],
     ["模式", modes[info.mode] ?? info.mode],
     ["皮肤目录", `${info.catalog_version} · ${info.champions} 位英雄 · ${info.skins} 款`],
     ["已适配游戏", info.supported_builds.join("、") || "无"],
+    ["许可", `${info.license} · 禁止商业使用`],
+    ["源码", repo],
   ];
   $("about").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]));
 }
@@ -272,11 +276,19 @@ $("sheet-backdrop").onclick = () => openSettings(false);
 $("set-art").onchange = (e) => saveSettings({ show_art: e.target.checked });
 $("set-top").onchange = (e) => saveSettings({ always_on_top: e.target.checked });
 $("open-logs").onclick = () => api.invoke("open_logs").catch(console.error);
+$("open-repo").onclick = () => api.invoke("open_repository").catch(console.error);
+$("notice-accept").onclick = async () => {
+  await api.invoke("accept_notice");
+  state.settings.notice_accepted = state.info.notice_version;
+  $("notice-modal").hidden = true;
+};
+$("notice-quit").onclick = () => api.invoke("quit_app");
 $("restore").onclick = () => api.invoke("restore_skin");
 $("search").oninput = (e) => { state.query = e.target.value; render(); };
 
 document.addEventListener("keydown", (e) => {
   const search = $("search");
+  if (!$("notice-modal").hidden) return;
   if (e.key === "Escape") {
     if ($("settings").classList.contains("open")) openSettings(false);
     else if (search.value) { search.value = ""; state.query = ""; render(); }
@@ -298,6 +310,7 @@ state.info = info;
 $("set-art").checked = settings.show_art;
 $("set-top").checked = settings.always_on_top;
 renderAbout();
+$("notice-modal").hidden = settings.notice_accepted >= info.notice_version;
 state.snapshot = snapshot;
 render();
 api.listen("snapshot", (next) => { state.snapshot = next; render(); });

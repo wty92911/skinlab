@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Native build: the same flags `scripts/build-session.ps1` used, plus a
 //! manifest the app verifies before every connect.
 
