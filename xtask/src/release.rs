@@ -81,7 +81,7 @@ pub fn notes(root: &Path, args: &[String]) -> Result<()> {
     }
     let previous = git(root, &["describe", "--tags", "--abbrev=0", &format!("{tag}^")]).ok();
     let range = previous.as_ref().map_or(tag.clone(), |p| format!("{p}..{tag}"));
-    let log = git(root, &["log", "--no-merges", "--format=- %s (%h)", &range])?;
+    let log = git(root, &["log", "--no-merges", "--invert-grep", "--grep=^Release v", "--format=- %s (%h)", &range])?;
 
     let builds = SupportedBuilds::embedded();
     let catalog = Catalog::embedded();
