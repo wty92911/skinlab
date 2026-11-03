@@ -4,7 +4,7 @@
 
 use crate::backend::{Backend, ConnectError, Session, SessionError};
 use skinlab_core::live::ActiveHero;
-use skinlab_core::{Command, HostFailureKind, HostReply, LuxForm, SessionState};
+use skinlab_core::{Command, HostFailureKind, HostReply, SessionState, form_set};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -21,17 +21,28 @@ pub struct MockGame {
     pub latency: Duration,
     pub current: u32,
     pub applied: Vec<u32>,
-    pub current_form: Option<LuxForm>,
-    pub applied_forms: Vec<LuxForm>,
+    /// Whether the session announces the forms in `skinlab_core::forms`.
+    pub forms: bool,
+    pub current_form: Option<&'static str>,
+    pub applied_forms: Vec<&'static str>,
     pub connects: u32,
     pub closed: bool,
 }
 
 impl MockGame {
+    /// Forms the game supports for the applied skin, if announced.
+    fn form_set(&self) -> Option<&'static skinlab_core::FormSet> {
+        if !self.forms {
+            return None;
+        }
+        form_set(self.model.as_deref()?, self.current)
+    }
+
     pub fn shared(model: Option<&str>) -> Arc<Mutex<MockGame>> {
         Arc::new(Mutex::new(MockGame {
             running: model.is_some(),
             model: model.map(str::to_string),
+            forms: true,
             ..Default::default()
         }))
     }
@@ -61,8 +72,13 @@ fn reply(game: &MockGame, state: SessionState) -> HostReply {
         result: 0,
         model: game.model.clone().unwrap_or_default(),
         current_skin: game.current,
-        current_form: game.current_form,
-        available_forms: if game.model.as_deref() == Some("Lux") { LuxForm::ALL.to_vec() } else { Vec::new() },
+        current_form: game.current_form.map(str::to_string),
+        // Like the host: announced for the champion regardless of the applied skin.
+        available_forms: skinlab_core::forms::FORM_SETS
+            .iter()
+            .filter(|set| game.forms && game.model.as_deref().is_some_and(|m| set.champion.eq_ignore_ascii_case(m)))
+            .flat_map(|set| set.forms.iter().map(|f| f.id.to_string()))
+            .collect(),
         pending: false,
         render_tid: 1,
         target_pid: MOCK_PID,
@@ -122,7 +138,7 @@ impl Session for MockSession {
         let state = match command {
             Command::Apply(skin) => {
                 game.current = skin;
-                game.current_form = (game.model.as_deref() == Some("Lux") && skin == 7).then_some(LuxForm::Light);
+                game.current_form = game.form_set().map(|set| set.base().id);
                 game.applied.push(skin);
                 SessionState::Active
             }
@@ -138,7 +154,7 @@ impl Session for MockSession {
             }
             Command::Status | Command::Inspect => self.last.as_ref().map_or(SessionState::Ready, |r| r.state),
             Command::Form(form) => {
-                if game.model.as_deref() != Some("Lux") || game.current != 7 {
+                if game.form_set().and_then(|set| set.form(form)).is_none() {
                     return Err(SessionError::new(HostFailureKind::Other, "当前皮肤不支持该形态", self.last.clone()));
                 }
                 game.current_form = Some(form);

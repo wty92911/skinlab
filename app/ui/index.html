@@ -27,17 +27,18 @@
     </header>
 
     <section class="hero" id="hero" hidden>
-      <div class="portrait" id="hero-portrait"><span id="hero-initial"></span></div>
-      <div class="hero-text">
-        <h1 id="hero-name"></h1>
-        <p class="hero-sub">
-          <span id="hero-current"></span>
-          <button class="link" id="restore" hidden>恢复原皮</button>
-        </p>
-        <label class="form-picker" id="form-picker" hidden>
-          <span>元素形态</span>
-          <select id="form-select" aria-label="元素形态"></select>
-        </label>
+      <div class="hero-main">
+        <div class="portrait" id="hero-portrait"><span id="hero-initial"></span></div>
+        <div class="hero-text">
+          <h1 id="hero-name"></h1>
+          <p class="hero-sub">
+            <span id="hero-current"></span>
+            <button class="link" id="restore" hidden>恢复原皮</button>
+          </p>
+        </div>
+      </div>
+      <div class="variants" id="variants">
+        <div class="variants-inner" id="variants-inner"></div>
       </div>
     </section>
 
@@ -66,6 +67,7 @@
     </footer>
   </div>
 
+  <div class="chroma-preview" id="chroma-preview" hidden></div>
   <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
   <aside class="sheet" id="settings" aria-hidden="true" aria-label="设置">
     <div class="sheet-head">

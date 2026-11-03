@@ -255,7 +255,8 @@ impl FixtureBackend {
         let skin = |id, name: &str| Skin {
             skin_id: id,
             name: name.into(),
-            has_chroma_variants: false,
+            art: String::new(),
+            chromas: Vec::new(),
             requires_special_handling: None,
             rarity: if id == 0 { "base".into() } else { "Epic".into() },
         };
@@ -263,6 +264,7 @@ impl FixtureBackend {
             id: FIXTURE_MODEL.into(),
             key: String::new(),
             name: "自建演示".into(),
+            art: String::new(),
             skins: vec![skin(0, "原始皮肤"), skin(1, "测试皮肤 1")],
         }
     }

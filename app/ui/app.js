@@ -10,7 +10,6 @@ function tauriApi() {
   return { invoke, listen: (name, fn) => listen(name, (event) => fn(event.payload)) };
 }
 
-const ART = "https://game.gtimg.cn/images/lol/act/img/";
 const TIERS = ["epic", "legendary", "mythic", "ultimate", "prestige", "limited", "common"];
 const TIER_LABEL = { base: "经典", common: "普通", epic: "史诗", legendary: "传说", mythic: "神话", ultimate: "终极", prestige: "至臻", limited: "限定" };
 const CONNECTED = new Set(["ready", "applying"]);
@@ -29,7 +28,10 @@ const PHASES = {
 };
 
 const $ = (id) => document.getElementById(id);
-const state = { snapshot: null, settings: { show_art: true, always_on_top: false }, info: null, query: "", tier: "all", gridKey: "", pendingLocal: null };
+const state = {
+  snapshot: null, settings: { show_art: true, always_on_top: false }, info: null, query: "", tier: "all", gridKey: "",
+  pendingLocal: null, pendingForm: null, variantsKey: "",
+};
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -49,8 +51,35 @@ function heroParts(name) {
   return { champion, title: title ?? "" };
 }
 
+// A chroma has its own skin number; resolve any number to its card.
+function family(id) {
+  if (id == null) return null;
+  for (const skin of state.snapshot?.skins ?? []) {
+    if (skin.id === id) return { skin, chroma: null };
+    const chroma = skin.chromas.find((c) => c.id === id);
+    if (chroma) return { skin, chroma };
+  }
+  return null;
+}
+
 function skinName(id) {
-  return state.snapshot?.skins.find((s) => s.id === id)?.name;
+  const found = family(id);
+  return found && (found.chroma ? `${found.skin.name} · ${found.chroma.name}` : found.skin.name);
+}
+
+// Forms of the applied skin, or null.
+function currentForms(s) {
+  return family(s.current_skin)?.skin.id === s.current_skin ? family(s.current_skin).skin.forms : null;
+}
+
+function formName(s, id) {
+  return currentForms(s)?.items.find((f) => f.id === id)?.name;
+}
+
+/** Form that differs from the skin's own model, or null. */
+function extraForm(s) {
+  const forms = currentForms(s);
+  return forms && s.current_form && s.current_form !== forms.items[0].id ? s.current_form : null;
 }
 
 function emptyArt(kind) {
@@ -80,7 +109,7 @@ function renderHero(s) {
   h1.replaceChildren(champion, title ? el("small", { class: "hero-title" }, title) : null);
 
   const portrait = $("hero-portrait");
-  const want = state.settings.show_art && hero.in_catalog ? `${ART}champion/${hero.model}.png` : "";
+  const want = state.settings.show_art ? hero.art ?? "" : "";
   if (portrait.dataset.src !== want) {
     portrait.dataset.src = want;
     portrait.replaceChildren(el("span", {}, champion.slice(0, 1)));
@@ -92,26 +121,139 @@ function renderHero(s) {
 
   const connected = CONNECTED.has(s.phase);
   let line;
-  if (s.phase === "applying" && s.desired_form) line = `正在切换到 ${s.forms?.find((form) => form.id === s.desired_form)?.name ?? "所选"}形态…`;
-  else if (s.phase === "applying") line = `正在切换到 ${skinName(s.desired_skin) ?? "所选皮肤"}…`;
-  else if (connected && s.current_skin != null) line = `当前：${skinName(s.current_skin) ?? `编号 ${s.current_skin}`}`;
+  if (s.phase === "applying" && s.desired_form) line = `正在切换到${formName(s, s.desired_form) ?? "所选"}形态…`;
+  else if (s.phase === "applying" && s.desired_skin != null) line = `正在切换到 ${skinName(s.desired_skin) ?? "所选皮肤"}…`;
+  else if (s.phase === "applying") line = "正在恢复…";
+  else if (connected && s.current_skin != null) {
+    const form = extraForm(s);
+    line = `当前：${skinName(s.current_skin) ?? `编号 ${s.current_skin}`}${form ? ` · ${formName(s, form)}` : ""}`;
+  }
   else if (s.phase === "unsupported" || s.phase === "blocked") line = "未接入 · 不会改动游戏";
   else line = s.message;
   $("hero-current").textContent = line;
 
   const restore = $("restore");
   restore.hidden = !connected || s.original_skin == null;
-  restore.disabled = s.phase === "applying" || (s.current_skin === s.original_skin && (!s.current_form || s.current_form === "Lux"));
-  const forms = s.forms ?? [];
-  $("form-picker").hidden = !connected || s.current_skin !== 7 || forms.length === 0;
-  const picker = $("form-select");
-  const formsKey = forms.map((form) => form.id).join("|");
-  if (picker.dataset.forms !== formsKey) {
-    picker.dataset.forms = formsKey;
-    picker.replaceChildren(...forms.map((form) => el("option", { value: form.id }, form.name)));
+  restore.disabled = s.phase === "applying" || (s.current_skin === s.original_skin && !extraForm(s));
+  renderVariants(s);
+}
+
+// Chromas and forms of the shown skin, in a strip that unfolds under the hero.
+function renderVariants(s) {
+  const connected = CONNECTED.has(s.phase);
+  const wanted = s.desired_skin ?? state.pendingLocal ?? s.current_skin;
+  const shown = connected ? family(wanted) : null;
+  const skin = shown?.skin;
+  // Forms switch the applied skin's model, so they only appear once it is applied.
+  const forms = skin && skin.id === s.current_skin && wanted === s.current_skin ? skin.forms : null;
+  const chromas = skin?.chromas.length ? skin.chromas : null;
+  const key = [s.hero?.model, skin?.id, !!chromas, forms?.items.length ?? 0, state.settings.show_art].join("|");
+  const box = $("variants");
+  const inner = $("variants-inner");
+  if (key !== state.variantsKey) {
+    state.variantsKey = key;
+    const groups = [];
+    if (chromas) groups.push(chromaGroup(skin, chromas));
+    if (forms) groups.push(formGroup(forms));
+    if (groups.length) inner.replaceChildren(...groups);
+    box.classList.toggle("open", groups.length > 0);
+    hidePreview();
   }
-  picker.value = s.desired_form ?? s.current_form ?? "Lux";
-  picker.disabled = s.phase === "applying";
+  if (!box.classList.contains("open")) return;
+
+  const busy = s.phase === "applying";
+  const pending = busy ? s.desired_skin : state.pendingLocal;
+  for (const node of inner.querySelectorAll(".swatch")) {
+    const id = Number(node.dataset.id);
+    node.setAttribute("aria-checked", String(id === s.current_skin));
+    node.classList.toggle("pending", id === pending && id !== s.current_skin);
+  }
+  const chosen = family(s.current_skin);
+  const label = inner.querySelector(".swatches")?.closest(".vgroup").querySelector(".vname");
+  if (label && !label.dataset.hover) label.textContent = chosen?.skin.id === skin?.id ? (chosen.chroma?.name ?? "原款") : "";
+
+  const formWanted = busy ? s.desired_form : state.pendingForm;
+  for (const node of inner.querySelectorAll(".seg-item")) {
+    const id = node.dataset.id;
+    node.setAttribute("aria-checked", String(id === s.current_form));
+    node.classList.toggle("pending", id === formWanted && id !== s.current_form);
+    node.disabled = busy;
+  }
+}
+
+function chromaGroup(skin, chromas) {
+  const name = el("span", { class: "vname" });
+  const showName = (text) => {
+    name.dataset.hover = text ? "1" : "";
+    if (text) name.textContent = text;
+    else renderVariants(state.snapshot);
+  };
+  const swatch = (id, label, paint, art) => {
+    const node = el("button", {
+      class: "swatch", role: "radio", "data-id": id, title: label, "aria-label": label, style: paint,
+      onclick: () => select(id),
+      onmouseenter: () => { showName(label); showPreview(node, art); },
+      onmouseleave: () => { showName(""); hidePreview(); },
+      onfocus: () => showName(label),
+      onblur: () => showName(""),
+    });
+    return node;
+  };
+  const base = swatch(skin.id, "原款", null, null);
+  base.classList.add("base");
+  if (skinArt(skin)) {
+    const img = el("img", { src: skinArt(skin), alt: "", draggable: "false" });
+    img.onerror = () => img.remove();
+    base.append(img);
+  }
+  const items = chromas.map((c) => {
+    const [a = "#9a978c", b = a] = c.colors;
+    return swatch(c.id, c.name, `--c1:${a};--c2:${b}`, c.art);
+  });
+  return el("div", { class: "vgroup" },
+    el("div", { class: "vhead" }, el("span", { class: "vlabel" }, "炫彩"), name, el("span", { class: "vcount" }, `${chromas.length} 款`)),
+    el("div", { class: "swatches", role: "radiogroup", "aria-label": "炫彩", onkeydown: roveFocus }, base, ...items));
+}
+
+function formGroup(forms) {
+  return el("div", { class: "vgroup" },
+    el("div", { class: "vhead" }, el("span", { class: "vlabel" }, forms.label)),
+    el("div", { class: "seg", role: "radiogroup", "aria-label": forms.label, onkeydown: roveFocus },
+      ...forms.items.map((f) => el("button", { class: "seg-item", role: "radio", "data-id": f.id, onclick: () => selectForm(f.id) }, f.name))));
+}
+
+function roveFocus(e) {
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+  if (!step) return;
+  const items = [...e.currentTarget.children];
+  const next = items[(items.indexOf(document.activeElement) + step + items.length) % items.length];
+  next?.focus();
+  e.preventDefault();
+}
+
+// Chroma render preview, positioned under the hovered swatch.
+let previewTimer = 0;
+function showPreview(anchor, url) {
+  hidePreview();
+  if (!url || !state.settings.show_art) return;
+  previewTimer = setTimeout(() => {
+    const img = el("img", { src: url, alt: "", draggable: "false" });
+    const box = $("chroma-preview");
+    img.onload = () => {
+      if (!anchor.isConnected || !anchor.matches(":hover")) return;
+      const hero = $("hero").getBoundingClientRect();
+      const at = anchor.getBoundingClientRect();
+      box.replaceChildren(img);
+      box.style.left = `${Math.min(Math.max(at.left + at.width / 2 - 66, 8), window.innerWidth - 140)}px`;
+      box.style.top = `${Math.max(at.bottom, hero.bottom - 4) + 8}px`;
+      box.hidden = false;
+    };
+  }, 140);
+}
+
+function hidePreview() {
+  clearTimeout(previewTimer);
+  $("chroma-preview").hidden = true;
 }
 
 function renderNotice(s) {
@@ -162,12 +304,16 @@ function renderFilters(s) {
 
 function visibleSkins(s) {
   const query = state.query.trim().toLowerCase();
-  return s.skins.filter((skin) =>
-    (state.tier === "all" || skin.rarity === state.tier) && (!query || skin.name.toLowerCase().includes(query)));
+  const matches = (skin) => skin.name.toLowerCase().includes(query) || skin.chromas.some((c) => c.name.toLowerCase().includes(query));
+  return s.skins.filter((skin) => (state.tier === "all" || skin.rarity === state.tier) && (!query || matches(skin)));
+}
+
+function skinArt(skin) {
+  return state.settings.show_art ? skin.art : null;
 }
 
 function card(skin, index) {
-  const art = state.settings.show_art && skin.art_id ? `${ART}skinloading/${skin.art_id}.jpg` : null;
+  const art = skinArt(skin);
   const img = art && el("img", { src: art, alt: "", loading: "lazy", decoding: "async", draggable: "false" });
   if (img) {
     img.onload = () => img.classList.add("loaded");
@@ -175,6 +321,13 @@ function card(skin, index) {
   }
   const label = skin.id === 0 ? "经典" : skin.rarity_label;
   const flagTip = "终极／多形态皮肤：特殊形态尚未适配，可能只有部分效果";
+  let badge = null;
+  if (skin.special) badge = el("span", { class: "flag", title: flagTip, "aria-label": flagTip }, "!");
+  else if (skin.forms) badge = el("span", { class: "badge", title: `${skin.forms.label}可切换` }, `${skin.forms.items.length} 形态`);
+  else if (skin.chromas.length) {
+    const dots = skin.chromas.slice(0, 3).map((c) => el("i", { style: `--c1:${c.colors[0] ?? "#9a978c"};--c2:${c.colors[1] ?? c.colors[0] ?? "#9a978c"}` }));
+    badge = el("span", { class: "badge chroma", title: `${skin.chromas.length} 款炫彩` }, el("span", { class: "dots" }, ...dots), String(skin.chromas.length));
+  }
   return el("button",
     { class: "card", "data-id": skin.id, "data-tier": skin.rarity, title: skin.name, style: `animation-delay:${Math.min(index, 18) * 14}ms`,
       onclick: () => select(skin.id) },
@@ -182,15 +335,14 @@ function card(skin, index) {
     img,
     el("div", { class: "shade" }),
     el("span", { class: "tier" }, label),
-    skin.special && !(state.snapshot.hero.model === "Lux" && skin.id === 7 && state.snapshot.forms?.length)
-      ? el("span", { class: "flag", title: flagTip, "aria-label": flagTip }, "!") : null,
-    el("span", { class: "name" }, skin.name),
+    badge,
+    el("span", { class: "caption" }, el("span", { class: "name" }, skin.name), el("span", { class: "sub" })),
     el("span", { class: "spinner" }));
 }
 
 function renderGrid(s) {
   if (!s.hero || s.skins.length === 0) return;
-  const key = [s.hero.model, s.skins.length, state.settings.show_art, state.query, state.tier, s.forms?.length ?? 0].join("|");
+  const key = [s.hero.model, s.skins.length, state.settings.show_art, state.query, state.tier, s.skins.filter((x) => x.forms).length].join("|");
   const grid = $("grid");
   const scroller = grid.parentElement;
   if (key !== state.gridKey) {
@@ -203,11 +355,17 @@ function renderGrid(s) {
   }
   const connected = CONNECTED.has(s.phase);
   grid.classList.toggle("locked", !connected);
+  const current = connected ? family(s.current_skin) : null;
   const pending = s.phase === "applying" ? s.desired_skin : state.pendingLocal;
+  const pendingCard = pending != null && pending !== s.current_skin ? family(pending)?.skin.id : null;
+  const form = extraForm(s);
   for (const node of grid.querySelectorAll(".card")) {
     const id = Number(node.dataset.id);
-    node.classList.toggle("current", connected && id === s.current_skin);
-    node.classList.toggle("pending", connected && id === pending && id !== s.current_skin);
+    const mine = current?.skin.id === id;
+    node.classList.toggle("current", mine);
+    // A chroma change on the current card shows on the swatch, not as a card overlay.
+    node.classList.toggle("pending", connected && id === pendingCard && !mine);
+    node.querySelector(".sub").textContent = mine ? (current.chroma?.name ?? (form ? formName(s, form) : "")) : "";
     node.disabled = !connected;
   }
 }
@@ -227,7 +385,6 @@ function renderFooter() {
 function render() {
   const s = state.snapshot;
   if (!s) return;
-  if (s.phase !== "applying" && state.pendingLocal != null && s.desired_skin == null) state.pendingLocal = null;
   renderStatus(s);
   renderHero(s);
   renderNotice(s);
@@ -244,6 +401,14 @@ function select(id) {
   api.invoke("select_skin", { skin: id });
 }
 
+function selectForm(id) {
+  const s = state.snapshot;
+  if (!s || !CONNECTED.has(s.phase) || id === s.current_form) return;
+  state.pendingForm = id;
+  render();
+  api.invoke("select_form", { form: id }).catch(console.error);
+}
+
 // Settings sheet
 function renderAbout() {
   const info = state.info;
@@ -253,7 +418,7 @@ function renderAbout() {
   const rows = [
     ["版本", `SkinLab ${info.version} · ${info.commit}`],
     ["模式", modes[info.mode] ?? info.mode],
-    ["皮肤目录", `${info.catalog_version} · ${info.champions} 位英雄 · ${info.skins} 款`],
+    ["皮肤目录", `${info.catalog_version} · ${info.champions} 位英雄 · ${info.skins} 款皮肤 · ${info.chromas} 款炫彩`],
     ["已适配游戏", info.supported_builds.join("、") || "无"],
     ["许可", `${info.license} · 禁止商业使用`],
     ["源码", repo],
@@ -278,12 +443,12 @@ async function saveSettings(patch) {
   $("set-art").checked = state.settings.show_art;
   $("set-top").checked = state.settings.always_on_top;
   state.gridKey = "";
+  state.variantsKey = "";
   $("hero-portrait").dataset.src = "-";
   render();
 }
 
 $("open-settings").onclick = () => openSettings(true);
-$("form-select").onchange = (event) => api.invoke("select_form", { form: event.target.value }).catch(console.error);
 $("close-settings").onclick = () => openSettings(false);
 $("sheet-backdrop").onclick = () => openSettings(false);
 $("set-art").onchange = (e) => saveSettings({ show_art: e.target.checked });
@@ -307,7 +472,7 @@ document.addEventListener("keydown", (e) => {
     else if (search.value) { search.value = ""; state.query = ""; render(); }
     return;
   }
-  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
+  const typing = e.target instanceof HTMLInputElement;
   if (!typing && !$("tools").hidden && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) search.focus();
 });
 document.addEventListener("contextmenu", (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
@@ -326,4 +491,10 @@ renderAbout();
 $("notice-modal").hidden = settings.notice_accepted >= info.notice_version;
 state.snapshot = snapshot;
 render();
-api.listen("snapshot", (next) => { state.snapshot = next; render(); });
+api.listen("snapshot", (next) => {
+  // The controller has seen the click once it reports a desired value or settles.
+  if (next.desired_skin != null || next.phase !== "applying") state.pendingLocal = null;
+  if (next.desired_form != null || next.phase !== "applying") state.pendingForm = null;
+  state.snapshot = next;
+  render();
+});

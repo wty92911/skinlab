@@ -135,9 +135,6 @@ svg { display: block; }
 
 /* Hero */
 .hero {
-  display: flex;
-  align-items: center;
-  gap: 14px;
   margin: 4px 18px 12px;
   padding: 12px;
   background: var(--surface);
@@ -146,6 +143,7 @@ svg { display: block; }
   box-shadow: var(--shadow);
   animation: rise 0.35s var(--ease);
 }
+.hero-main { display: flex; align-items: center; gap: 14px; }
 .portrait {
   flex: none;
   width: 54px; height: 54px;
@@ -187,9 +185,107 @@ svg { display: block; }
 }
 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .link:disabled { color: var(--text-3); cursor: default; text-decoration: none; }
-.form-picker { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: var(--text-2); font-size: 12px; }
-.form-picker select { min-width: 110px; padding: 6px 28px 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
-.form-picker select:disabled { opacity: .6; cursor: wait; }
+/* Variants: chromas and forms of the shown skin, unfolding under the hero */
+.variants {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s var(--ease);
+}
+.variants.open { grid-template-rows: 1fr; }
+.variants-inner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.variants.open .variants-inner { opacity: 1; }
+.vgroup { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); }
+.vgroup + .vgroup { margin-top: 10px; }
+.vhead {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.vlabel { color: var(--text-3); letter-spacing: 0.04em; }
+.vname { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-weight: 550; }
+.vcount { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 9px; padding: 2px 3px 3px; }
+.swatch {
+  position: relative;
+  width: 26px; height: 26px;
+  padding: 0; border: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--c1) 50%, var(--c2) 50%);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+  cursor: pointer;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s;
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--text-3); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent); }
+.swatch.pending { animation: ring 1s ease-in-out infinite; }
+@keyframes ring {
+  0%, 100% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent); }
+  50% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px transparent; }
+}
+.swatch.base {
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.swatch.base::after {
+  /* Shown when there is no art. */
+  content: ""; position: absolute; inset: 7px; border-radius: 50%;
+  border: 1.5px solid var(--text-3);
+}
+.swatch.base img {
+  position: absolute; inset: 0; z-index: 1;
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: 50% 18%;
+  transform: scale(1.5);
+}
+
+.seg {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.seg-item {
+  flex: 1 0 auto;
+  min-width: 40px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0; border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.seg-item:hover:not(:disabled) { color: var(--text); background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.seg-item:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.seg-item[aria-checked="true"] { background: var(--surface); color: var(--accent-strong); font-weight: 600; box-shadow: var(--shadow); }
+.seg-item.pending { color: var(--accent-strong); animation: pulse-text 1s ease-in-out infinite; }
+.seg-item:disabled { cursor: default; }
+@keyframes pulse-text { 50% { opacity: 0.45; } }
+
+.chroma-preview {
+  position: fixed; z-index: 15;
+  width: 132px; height: 148px;
+  padding: 6px;
+  border-radius: 12px;
+  background:
+    radial-gradient(90% 60% at 50% 100%, var(--accent-soft), transparent 70%),
+    var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lift);
+  pointer-events: none;
+  animation: rise 0.18s var(--ease);
+}
+.chroma-preview img { width: 100%; height: 100%; object-fit: contain; }
 
 .notice {
   margin: -2px 18px 12px;
@@ -297,8 +393,11 @@ svg { display: block; }
   background: linear-gradient(to top, rgb(18 17 15 / 0.88), rgb(18 17 15 / 0.45) 55%, transparent);
   pointer-events: none;
 }
-.card .name {
+.card .caption {
   position: absolute; left: 10px; right: 10px; bottom: 9px;
+  display: grid; gap: 1px;
+}
+.card .name {
   color: #faf9f5;
   font-size: 12.5px;
   line-height: 1.3;
@@ -322,6 +421,32 @@ svg { display: block; }
   content: ""; width: 6px; height: 6px; border-radius: 50%;
   background: var(--tier); margin-right: 5px;
 }
+.card .sub {
+  color: color-mix(in srgb, var(--accent) 55%, #faf9f5);
+  font-size: 11.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card .sub:empty { display: none; }
+.card .badge {
+  position: absolute; right: 8px; top: 8px;
+  height: 20px; padding: 0 7px;
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: 6px;
+  background: rgb(18 17 15 / 0.55);
+  backdrop-filter: blur(6px);
+  color: #faf9f5;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.card .badge .dots { display: inline-flex; }
+.card .badge .dots i {
+  width: 9px; height: 9px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--c1) 50%, var(--c2) 50%);
+  box-shadow: 0 0 0 1.5px rgb(18 17 15 / 0.7);
+}
+.card .badge .dots i:first-child { margin-left: 0; }
 .card .flag {
   position: absolute; right: 8px; top: 8px;
   width: 20px; height: 20px;
@@ -349,7 +474,7 @@ svg { display: block; }
   background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23faf9f5' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12.5 4 4 8-9'/%3E%3C/svg%3E") center / 14px no-repeat;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
 }
-.card.current .name { right: 36px; }
+.card.current .caption { right: 36px; }
 .card.pending::before {
   content: "";
   position: absolute; inset: 0;

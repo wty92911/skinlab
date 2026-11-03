@@ -20,8 +20,23 @@ const SAMPLE = {
   }],
 };
 const LABEL = { base: "经典", common: "普通", epic: "史诗", legendary: "传说", mythic: "神话", ultimate: "终极", prestige: "至臻", limited: "限定" };
-const LUX_FORMS = ["Lux", "LuxAir", "LuxDark", "LuxFire", "LuxIce", "LuxMagma", "LuxMystic", "LuxNature", "LuxStorm", "LuxWater"]
-  .map((id, i) => ({ id, name: ["光", "风", "暗", "火", "冰", "熔岩", "秘术", "自然", "风暴", "水"][i] }));
+// Mirrors crates/skinlab-core/src/art.rs.
+const ORIGINS = { tencent: "https://game.gtimg.cn/images/lol/act/img/" };
+const artUrl = (reference = "") => {
+  const [origin, path] = reference.split(/:(.*)/s);
+  return ORIGINS[origin] && path ? ORIGINS[origin] + path : null;
+};
+
+// Mirrors crates/skinlab-core/src/forms.rs.
+const FORM_SETS = [{
+  champion: "Lux", skin: 7, label: "元素形态",
+  items: ["Lux", "LuxAir", "LuxDark", "LuxFire", "LuxIce", "LuxMagma", "LuxMystic", "LuxNature", "LuxStorm", "LuxWater"]
+    .map((id, i) => ({ id, name: ["光", "风", "暗", "火", "冰", "熔岩", "秘术", "自然", "风暴", "水"][i] })),
+}];
+const formsOf = (model, skin) => {
+  const set = FORM_SETS.find((f) => f.champion === model && f.skin === skin);
+  return set ? { label: set.label, items: set.items } : null;
+};
 
 // Mirrors Skin::rarity in crates/skinlab-core/src/catalog.rs.
 function rarity(raw = "") {
@@ -36,17 +51,20 @@ function rarity(raw = "") {
   return "limited";
 }
 
+// Mirrors skin_views in crates/skinlab-session/src/controller.rs.
 function view(champion) {
   const skins = champion.skins.map((s) => {
     const tier = rarity(s.rarity);
+    const forms = formsOf(champion.id, s.skin_id);
     return {
       id: s.skin_id, name: s.name, rarity: tier, rarity_label: LABEL[tier],
-      special: s.requires_special_handling === true || tier === "ultimate",
-      chromas: !!s.has_chroma_variants, art_id: champion.key ? Number(champion.key) * 1000 + s.skin_id : null,
+      special: (s.requires_special_handling === true || tier === "ultimate") && !forms,
+      chromas: (s.chromas ?? []).map((c) => ({ id: c.skin_id, name: c.name, colors: c.colors ?? [], art: artUrl(c.art) })),
+      forms, art: artUrl(s.art),
     };
   });
-  return { hero: { model: champion.id, name: champion.name, key: champion.key, in_catalog: true }, skins,
-    forms: champion.id === "Lux" ? LUX_FORMS : [], current_form: null, desired_form: null };
+  return { hero: { model: champion.id, name: champion.name, key: champion.key, in_catalog: true, art: artUrl(champion.art) }, skins,
+    current_form: null, desired_form: null };
 }
 
 async function loadCatalog() {
@@ -110,7 +128,7 @@ export async function createMock() {
     emit({ phase: "applying", message: "正在切换…", desired_skin: skin });
     await wait(650);
     emit({ phase: "ready", message: done, current_skin: skin, desired_skin: null, desired_form: null,
-      current_form: snap.hero?.model === "Lux" && skin === 7 ? "Lux" : null });
+      current_form: formsOf(snap.hero?.model, skin)?.items[0].id ?? null });
   };
   const handlers = {
     get_snapshot: () => structuredClone(snap),
@@ -120,11 +138,12 @@ export async function createMock() {
       version: "0.4.0", commit: "dev", repository: "https://github.com/wty92911/skinlab",
       license: "PolyForm Noncommercial 1.0.0", notice_version: 1, mode: "demo", hotkey: true, catalog_version: catalog.version,
       champions: catalog.champions.length, skins: catalog.champions.reduce((n, c) => n + c.skins.length, 0),
+      chromas: catalog.champions.reduce((n, c) => n + c.skins.reduce((m, s) => m + (s.chromas?.length ?? 0), 0), 0),
       supported_builds: [version],
     }),
     select_skin: ({ skin }) => { apply(skin, "已生效"); },
     select_form: async ({ form }) => {
-      if (snap.current_skin !== 7 || !snap.forms?.some((entry) => entry.id === form)) return;
+      if (!formsOf(snap.hero?.model, snap.current_skin)?.items.some((entry) => entry.id === form)) return;
       emit({ phase: "applying", message: "正在切换…", desired_form: form });
       await wait(400);
       emit({ phase: "ready", message: "已生效", current_form: form, desired_form: null });

@@ -4,75 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum LuxForm {
-    #[serde(rename = "Lux")]
-    Light,
-    #[serde(rename = "LuxAir")]
-    Air,
-    #[serde(rename = "LuxDark")]
-    Dark,
-    #[serde(rename = "LuxFire")]
-    Fire,
-    #[serde(rename = "LuxIce")]
-    Ice,
-    #[serde(rename = "LuxMagma")]
-    Magma,
-    #[serde(rename = "LuxMystic")]
-    Mystic,
-    #[serde(rename = "LuxNature")]
-    Nature,
-    #[serde(rename = "LuxStorm")]
-    Storm,
-    #[serde(rename = "LuxWater")]
-    Water,
-}
-
-impl LuxForm {
-    pub const ALL: [Self; 10] = [
-        Self::Light,
-        Self::Air,
-        Self::Dark,
-        Self::Fire,
-        Self::Ice,
-        Self::Magma,
-        Self::Mystic,
-        Self::Nature,
-        Self::Storm,
-        Self::Water,
-    ];
-
-    pub fn model(self) -> &'static str {
-        match self {
-            Self::Light => "Lux",
-            Self::Air => "LuxAir",
-            Self::Dark => "LuxDark",
-            Self::Fire => "LuxFire",
-            Self::Ice => "LuxIce",
-            Self::Magma => "LuxMagma",
-            Self::Mystic => "LuxMystic",
-            Self::Nature => "LuxNature",
-            Self::Storm => "LuxStorm",
-            Self::Water => "LuxWater",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Light => "光",
-            Self::Air => "风",
-            Self::Dark => "暗",
-            Self::Fire => "火",
-            Self::Ice => "冰",
-            Self::Magma => "熔岩",
-            Self::Mystic => "秘术",
-            Self::Nature => "自然",
-            Self::Storm => "风暴",
-            Self::Water => "水",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Apply(u32),
@@ -81,7 +12,8 @@ pub enum Command {
     Status,
     /// Read-only adaptation snapshot; not exposed by the player UI.
     Inspect,
-    Form(LuxForm),
+    /// Model alias from `forms::FORM_SETS`.
+    Form(&'static str),
 }
 
 impl Command {
@@ -92,7 +24,7 @@ impl Command {
             Command::Stop => "stop\n".into(),
             Command::Status => "status\n".into(),
             Command::Inspect => "inspect\n".into(),
-            Command::Form(form) => format!("form {}\n", form.model()),
+            Command::Form(form) => format!("form {form}\n"),
         }
     }
 }
@@ -155,9 +87,9 @@ pub struct HostReply {
     #[serde(default)]
     pub current_skin: u32,
     #[serde(default)]
-    pub current_form: Option<LuxForm>,
+    pub current_form: Option<String>,
     #[serde(default)]
-    pub available_forms: Vec<LuxForm>,
+    pub available_forms: Vec<String>,
     #[serde(default)]
     pub pending: bool,
     #[serde(default)]
@@ -198,8 +130,8 @@ mod tests {
         .unwrap();
         assert_eq!(reply.state, SessionState::Active);
         assert_eq!(reply.current_skin, 7);
-        assert_eq!(reply.current_form, Some(LuxForm::Air));
-        assert_eq!(reply.available_forms, vec![LuxForm::Light, LuxForm::Air]);
+        assert_eq!(reply.current_form.as_deref(), Some("LuxAir"));
+        assert_eq!(reply.available_forms, ["Lux", "LuxAir"]);
         assert!(reply.succeeded());
     }
 
@@ -230,6 +162,6 @@ mod tests {
         assert_eq!(Command::Apply(12).line(), "apply 12\n");
         assert_eq!(Command::Stop.line(), "stop\n");
         assert_eq!(Command::Inspect.line(), "inspect\n");
-        assert_eq!(Command::Form(LuxForm::Air).line(), "form LuxAir\n");
+        assert_eq!(Command::Form("LuxAir").line(), "form LuxAir\n");
     }
 }

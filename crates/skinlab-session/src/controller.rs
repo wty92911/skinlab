@@ -9,7 +9,7 @@
 use crate::backend::{Backend, ConnectError, Session};
 use serde::Serialize;
 use skinlab_core::live::ActiveHero;
-use skinlab_core::{Catalog, Champion, Command, HostFailureKind, HostReply, LuxForm, Rarity};
+use skinlab_core::{Catalog, Champion, Command, HostFailureKind, HostReply, Rarity, art, form_set};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -36,6 +36,8 @@ pub struct HeroView {
     pub name: String,
     pub key: String,
     pub in_catalog: bool,
+    /// Portrait URL.
+    pub art: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -46,9 +48,26 @@ pub struct SkinView {
     pub rarity_label: &'static str,
     /// Needs form/stack handling the shared update path does not provide yet.
     pub special: bool,
-    pub chromas: bool,
-    /// CN website art identifier (`key * 1000 + id`), when known.
-    pub art_id: Option<u64>,
+    pub chromas: Vec<ChromaView>,
+    /// Forms the connected session can switch between while this skin is applied.
+    pub forms: Option<FormsView>,
+    /// Card art URL.
+    pub art: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ChromaView {
+    pub id: u32,
+    pub name: String,
+    pub colors: Vec<String>,
+    /// Model render URL.
+    pub art: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FormsView {
+    pub label: &'static str,
+    pub items: Vec<FormView>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -60,16 +79,16 @@ pub struct Snapshot {
     pub current_skin: Option<u32>,
     pub original_skin: Option<u32>,
     pub desired_skin: Option<u32>,
-    pub current_form: Option<LuxForm>,
-    pub desired_form: Option<LuxForm>,
-    pub forms: Vec<FormView>,
+    /// Form of the applied skin (`FormsView::items[].id`); `None` when it has none.
+    pub current_form: Option<&'static str>,
+    pub desired_form: Option<&'static str>,
     pub game_version: Option<String>,
     pub catalog_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct FormView {
-    pub id: LuxForm,
+    pub id: &'static str,
     pub name: &'static str,
 }
 
@@ -93,7 +112,7 @@ impl Default for Timing {
 
 pub enum Request {
     Select(u32),
-    SelectForm(LuxForm),
+    SelectForm(String),
     Restore,
     /// Rescan now instead of waiting for the next tick.
     Refresh,
@@ -117,6 +136,8 @@ pub struct Controller {
     blocked: Option<u32>,
     restore_requested: bool,
     paused: bool,
+    /// Form aliases the current session announced.
+    available_forms: Vec<String>,
     snapshot: Snapshot,
     shared: Arc<Mutex<Snapshot>>,
     notify: Notify,
@@ -137,7 +158,7 @@ impl ControllerHandle {
         let _ = self.sender.send(Request::Select(skin));
     }
 
-    pub fn select_form(&self, form: LuxForm) {
+    pub fn select_form(&self, form: String) {
         let _ = self.sender.send(Request::SelectForm(form));
     }
 
@@ -173,7 +194,6 @@ impl Controller {
             desired_skin: None,
             current_form: None,
             desired_form: None,
-            forms: Vec::new(),
             game_version: None,
             catalog_version: catalog.version.clone(),
         };
@@ -188,6 +208,7 @@ impl Controller {
             blocked: None,
             restore_requested: false,
             paused: false,
+            available_forms: Vec::new(),
             shared: Arc::new(Mutex::new(snapshot.clone())),
             snapshot,
             notify: Box::new(|_| {}),
@@ -236,7 +257,7 @@ impl Controller {
             for request in first.into_iter().chain(requests.try_iter()) {
                 match request {
                     Request::Select(skin) => self.select(skin),
-                    Request::SelectForm(form) => self.select_form(form),
+                    Request::SelectForm(form) => self.select_form(&form),
                     Request::Restore => self.restore_requested = true,
                     Request::Refresh => tick = true,
                     Request::SetPaused(paused) => {
@@ -274,14 +295,15 @@ impl Controller {
             return;
         }
         let champion = self.catalog.champion(model).cloned();
-        self.snapshot.skins = champion.as_ref().map(skin_views).unwrap_or_default();
+        self.snapshot.skins = champion.as_ref().map(|c| skin_views(c, &self.available_forms)).unwrap_or_default();
         self.snapshot.hero = Some(match champion {
-            Some(c) => HeroView { model: c.id, name: c.name, key: c.key, in_catalog: true },
+            Some(c) => HeroView { art: art::url(&c.art), model: c.id, name: c.name, key: c.key, in_catalog: true },
             None => HeroView {
                 model: model.into(),
                 name: if fallback_name.is_empty() { model.into() } else { fallback_name.into() },
                 key: String::new(),
                 in_catalog: false,
+                art: None,
             },
         });
     }
@@ -298,7 +320,7 @@ impl Controller {
         self.snapshot.desired_skin = None;
         self.snapshot.current_form = None;
         self.snapshot.desired_form = None;
-        self.snapshot.forms.clear();
+        self.available_forms.clear();
     }
 
     /// One discovery pass. Public for tests; the controller thread calls it on a timer.
@@ -391,7 +413,8 @@ impl Controller {
 
     /// Records a selection; applied by the next `drive`. Public for tests.
     pub fn select(&mut self, skin: u32) {
-        if self.session.is_none() || !self.snapshot.skins.iter().any(|s| s.id == skin) {
+        let known = |s: &SkinView| s.id == skin || s.chromas.iter().any(|c| c.id == skin);
+        if self.session.is_none() || !self.snapshot.skins.iter().any(known) {
             return;
         }
         self.snapshot.desired_skin = Some(skin);
@@ -399,25 +422,34 @@ impl Controller {
         self.publish();
     }
 
-    pub fn select_form(&mut self, form: LuxForm) {
-        if self.session.is_none()
-            || self.snapshot.current_skin != Some(7)
-            || self.snapshot.desired_skin.is_some_and(|skin| skin != 7)
-            || !self.snapshot.forms.iter().any(|available| available.id == form)
-        {
+    /// Records a form for the applied skin; applied by the next `drive`.
+    pub fn select_form(&mut self, id: &str) {
+        let Some(current) = self.snapshot.current_skin else { return };
+        if self.session.is_none() || self.snapshot.desired_skin.is_some_and(|skin| skin != current) {
             return;
         }
-        self.snapshot.desired_form = (Some(form) != self.snapshot.current_form).then_some(form);
+        let forms = self.snapshot.skins.iter().find(|s| s.id == current).and_then(|s| s.forms.as_ref());
+        let Some(form) = forms.and_then(|f| f.items.iter().find(|f| f.id == id)) else { return };
+        self.snapshot.desired_form = (Some(form.id) != self.snapshot.current_form).then_some(form.id);
         self.publish();
     }
 
     fn show_forms(&mut self, reply: &HostReply) {
-        self.snapshot.current_form = reply.current_form;
-        self.snapshot.forms = if reply.model == "Lux" {
-            reply.available_forms.iter().map(|&id| FormView { id, name: id.label() }).collect()
-        } else {
-            Vec::new()
-        };
+        if self.available_forms != reply.available_forms {
+            self.available_forms = reply.available_forms.clone();
+            self.rebuild_skins();
+        }
+        let set = self.snapshot.hero.as_ref().and_then(|h| form_set(&h.model, reply.current_skin));
+        self.snapshot.current_form = set.and_then(|set| {
+            let current = reply.current_form.as_deref().map_or(Some(set.base()), |id| set.form(id))?;
+            self.available_forms.iter().any(|a| a == current.id).then_some(current.id)
+        });
+    }
+
+    fn rebuild_skins(&mut self) {
+        if let Some(champion) = self.snapshot.hero.as_ref().and_then(|h| self.catalog.champion(&h.model)) {
+            self.snapshot.skins = skin_views(champion, &self.available_forms);
+        }
     }
 
     pub fn request_restore(&mut self) {
@@ -487,7 +519,10 @@ impl Controller {
         self.snapshot.desired_skin = None;
         self.snapshot.current_form = None;
         self.snapshot.desired_form = None;
-        self.snapshot.forms.clear();
+        if !self.available_forms.is_empty() {
+            self.available_forms.clear();
+            self.rebuild_skins();
+        }
         if block.is_some() {
             self.blocked = block;
             self.set(Phase::Blocked, message);
@@ -502,18 +537,39 @@ impl Controller {
     }
 }
 
-fn skin_views(champion: &Champion) -> Vec<SkinView> {
+fn skin_views(champion: &Champion, available_forms: &[String]) -> Vec<SkinView> {
     champion
         .skins
         .iter()
-        .map(|skin| SkinView {
-            id: skin.skin_id,
-            name: skin.name.clone(),
-            rarity: skin.rarity(),
-            rarity_label: skin.rarity().label(),
-            special: skin.needs_special_handling(),
-            chromas: skin.has_chroma_variants,
-            art_id: champion.art_id(skin.skin_id),
+        .map(|skin| {
+            let forms = form_set(&champion.id, skin.skin_id).and_then(|set| {
+                let items: Vec<FormView> = set
+                    .forms
+                    .iter()
+                    .filter(|f| available_forms.iter().any(|a| a == f.id))
+                    .map(|f| FormView { id: f.id, name: f.name })
+                    .collect();
+                (items.len() > 1).then_some(FormsView { label: set.label, items })
+            });
+            SkinView {
+                id: skin.skin_id,
+                name: skin.name.clone(),
+                rarity: skin.rarity(),
+                rarity_label: skin.rarity().label(),
+                special: skin.needs_special_handling() && forms.is_none(),
+                chromas: skin
+                    .chromas
+                    .iter()
+                    .map(|c| ChromaView {
+                        id: c.skin_id,
+                        name: c.name.clone(),
+                        colors: c.colors.clone(),
+                        art: art::url(&c.art),
+                    })
+                    .collect(),
+                forms,
+                art: art::url(&skin.art),
+            }
         })
         .collect()
 }
@@ -568,43 +624,84 @@ mod tests {
         assert!(game.lock().unwrap().applied.is_empty());
     }
 
+    fn lux_forms(c: &Controller) -> Option<&FormsView> {
+        c.snapshot().skins.iter().find(|s| s.id == 7).and_then(|s| s.forms.as_ref())
+    }
+
     #[test]
     fn manual_forms_follow_latest_choice_and_restore_with_skin() {
         let game = MockGame::shared(Some("Lux"));
         let mut c = controller(&game);
         c.tick();
-        assert_eq!(c.snapshot().forms.len(), 10);
-        c.select_form(LuxForm::Air);
+        assert_eq!(lux_forms(&c).unwrap().items.len(), 10);
+        assert!(!c.snapshot().skins.iter().find(|s| s.id == 7).unwrap().special);
+        c.select_form("LuxAir");
         c.drive();
         assert!(game.lock().unwrap().applied_forms.is_empty());
 
         c.select(7);
         c.drive();
-        c.select_form(LuxForm::Air);
-        c.select_form(LuxForm::Fire);
+        assert_eq!(c.snapshot().current_form, Some("Lux"));
+        c.select_form("LuxAir");
+        c.select_form("LuxFire");
+        c.select_form("Ahri");
         c.drive();
-        assert_eq!(c.snapshot().current_form, Some(LuxForm::Fire));
-        assert_eq!(game.lock().unwrap().applied_forms, vec![LuxForm::Fire]);
+        assert_eq!(c.snapshot().current_form, Some("LuxFire"));
+        assert_eq!(game.lock().unwrap().applied_forms, ["LuxFire"]);
 
-        c.select_form(LuxForm::Air);
+        c.select_form("LuxAir");
         c.select(1);
         c.drive();
         assert_eq!(c.snapshot().current_skin, Some(1));
         assert_eq!(c.snapshot().current_form, None);
         assert_eq!(c.snapshot().desired_form, None);
-        assert_eq!(game.lock().unwrap().applied_forms, vec![LuxForm::Fire]);
+        assert_eq!(game.lock().unwrap().applied_forms, ["LuxFire"]);
 
         c.select(7);
         c.drive();
-        c.select_form(LuxForm::Air);
+        c.select_form("LuxAir");
         c.drive();
         c.request_restore();
         c.drive();
         assert_eq!(c.snapshot().current_skin, Some(0));
         assert_eq!(c.snapshot().current_form, None);
         c.shutdown();
-        assert!(c.snapshot().forms.is_empty());
+        assert!(lux_forms(&c).is_none());
         assert!(game.lock().unwrap().closed);
+    }
+
+    #[test]
+    fn forms_need_host_support() {
+        let game = MockGame::shared(Some("Lux"));
+        game.lock().unwrap().forms = false;
+        let mut c = controller(&game);
+        c.tick();
+        assert!(lux_forms(&c).is_none());
+        assert!(c.snapshot().skins.iter().find(|s| s.id == 7).unwrap().special);
+        c.select(7);
+        c.drive();
+        c.select_form("LuxAir");
+        c.drive();
+        assert_eq!(c.snapshot().current_form, None);
+        assert!(game.lock().unwrap().applied_forms.is_empty());
+    }
+
+    #[test]
+    fn chromas_apply_through_the_shared_path() {
+        let game = MockGame::shared(Some("Lux"));
+        let mut c = controller(&game);
+        c.tick();
+        let porcelain = c.snapshot().skins.iter().find(|s| s.id == 29).unwrap().clone();
+        assert!(porcelain.chromas.len() > 3);
+        let chroma = porcelain.chromas[0].clone();
+        assert!(!chroma.name.contains("拉克丝"), "{}", chroma.name);
+        assert!(chroma.art.is_some_and(|url| url.ends_with(&format!("/99/{}.png", 99_000 + chroma.id))));
+        c.select(chroma.id);
+        c.drive();
+        assert_eq!(c.snapshot().current_skin, Some(chroma.id));
+        c.select(99_999);
+        c.drive();
+        assert_eq!(game.lock().unwrap().applied, [chroma.id]);
     }
 
     #[test]

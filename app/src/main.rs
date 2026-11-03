@@ -4,7 +4,7 @@
 mod settings;
 
 use settings::Settings;
-use skinlab_core::{Catalog, LuxForm, SupportedBuilds};
+use skinlab_core::{Catalog, SupportedBuilds};
 use skinlab_session::game::{FixtureBackend, GameBackend};
 use skinlab_session::mock::MockBackend;
 use skinlab_session::{Backend, Controller, ControllerHandle, NativeBundle, Snapshot, Timing};
@@ -69,6 +69,7 @@ struct AppInfo {
     catalog_version: String,
     champions: usize,
     skins: usize,
+    chromas: usize,
     supported_builds: Vec<String>,
 }
 
@@ -83,7 +84,7 @@ fn select_skin(state: tauri::State<'_, AppState>, skin: u32) {
 }
 
 #[tauri::command]
-fn select_form(state: tauri::State<'_, AppState>, form: LuxForm) {
+fn select_form(state: tauri::State<'_, AppState>, form: String) {
     state.controller.select_form(form);
 }
 
@@ -110,6 +111,7 @@ fn app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         hotkey: state.hotkey,
         champions: catalog.champions.len(),
         skins: catalog.skin_count(),
+        chromas: catalog.chroma_count(),
         catalog_version: catalog.version,
         supported_builds: SupportedBuilds::embedded().builds.into_iter().map(|b| b.version).collect(),
     }
