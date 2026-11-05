@@ -46,9 +46,26 @@ jobs:
       - run: cargo test --workspace
       - name: Verify against the owned WARP fixture
         run: cargo xtask verify
+      - name: Cache Tauri bundler tools
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri
+          key: tauri-tools-windows-v1
       - name: Build installer
         working-directory: app
-        run: npx --yes @tauri-apps/cli@2 build
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            $buildOutput = & npx --yes @tauri-apps/cli@2 build 2>&1
+            $buildExit = $LASTEXITCODE
+            $buildOutput | ForEach-Object { Write-Host $_ }
+            if ($buildExit -eq 0) { exit 0 }
+            $transientDownload = ($buildOutput -join "`n") -match 'http status: (429|5\d\d)|connection reset|connection timed out|error sending request for url'
+            if (!$transientDownload -or $attempt -eq 3) { exit $buildExit }
+            Write-Host "Transient bundler download failure; retrying ($attempt/3)."
+            Start-Sleep -Seconds 5
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: skinlab-windows

@@ -74,12 +74,27 @@ pub struct StackProbe {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CodeProbe {
-    /// Native shared protocol v8 / core ABI v2 add stack_reference_0..5,
+    /// Native shared protocol v9 / core ABI v2 retain stack_reference_0..5,
     /// material_registry_getter and swap_chain_context to the five original roles.
     /// Every role is diagnostic only; its bytes do not enable an engine binding.
     pub role: String,
     pub rva: u32,
     pub bytes_hex: String,
+}
+
+/// Best-effort startup progress, including when the completion wait expires.
+/// This is diagnostic data, never proof of a usable or unloaded session.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StartupProbe {
+    pub stage: String,
+    pub phase: u32,
+    pub hook_tid: u32,
+    pub worker_tid: u32,
+    pub render_tid: u32,
+    pub hook_remove: u32,
+    pub module_pinned: bool,
+    pub collection_ms: u64,
+    pub result_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -110,6 +125,8 @@ pub struct HostReply {
     pub error: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_probe: Option<StackProbe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup: Option<StartupProbe>,
 }
 
 impl HostReply {
@@ -163,6 +180,22 @@ mod tests {
         let failure = crate::error::classify(&reply.error, reply.result);
         assert_eq!(failure.kind, crate::HostFailureKind::NotReady);
         assert!(failure.kind.retryable());
+    }
+
+    #[test]
+    fn startup_timeout_keeps_partial_progress() {
+        let reply = HostReply::parse(
+            r#"{"event":"session","state":"invalid","error":"Observation startup timeout: stage=frame","startup":{"stage":"frame","phase":2,"hook_tid":11,"worker_tid":12,"render_tid":0,"hook_remove":0,"module_pinned":true,"collection_ms":25,"result_count":17}}"#,
+        )
+        .unwrap();
+        assert!(!reply.succeeded());
+        let failure = crate::error::classify(&reply.error, reply.result);
+        assert_eq!(failure.kind, crate::HostFailureKind::StartupTimeout);
+        assert!(!failure.kind.retryable());
+        let probe = reply.startup.unwrap();
+        assert_eq!(probe.stage, "frame");
+        assert!(probe.module_pinned);
+        assert_eq!(probe.render_tid, 0);
     }
 
     #[test]

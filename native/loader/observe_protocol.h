@@ -5,9 +5,10 @@
 #include <string>
 
 constexpr uint64_t SL_OBSERVE_MAGIC=0x534c4f4253303031ULL;
-constexpr uint32_t SL_OBSERVE_VERSION=8,SL_OBSERVE_RULES=17,SL_STACK_CONTEXTS=6,SL_CODE_PROBES=13;
+constexpr uint32_t SL_OBSERVE_VERSION=9,SL_OBSERVE_RULES=17,SL_STACK_CONTEXTS=6,SL_CODE_PROBES=13;
 constexpr wchar_t SL_OBSERVE_MESSAGE[]=L"SkinLab.NativeSession.74576016-9FBC-486A-98EB-C98B41960012";
 enum : LONG {SL_O_ARMED=1,SL_O_RUNNING,SL_O_COMPLETE,SL_O_FAILED};
+enum : LONG {SL_START_MESSAGE,SL_START_COLLECT,SL_START_HASH,SL_START_SCAN,SL_START_BIND,SL_START_FRAME,SL_START_READY};
 enum : UINT {SL_O_FIXTURE_QUERY=WM_APP+0x630};
 struct SlObserveResult {
     uint32_t state,has_candidate,match_count,match_count_capped;
@@ -37,6 +38,8 @@ struct SlObserveShared {
     uint32_t session_command,requested_skin,session_result,session_skin,session_state,session_form,forms_available;
     uint32_t session_encoded_skin;
     volatile LONG phase;
+    volatile LONG startup_stage;
+    uint32_t hook_remove;
     uint32_t fixture_tid,fixture_module_present,fixture_queries,fixture_exited,fixture_codec;
     uint32_t hook_tid,worker_tid,module_pinned,win32_error;
     uint32_t image_size,complete,gap_count,result_count;

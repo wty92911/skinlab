@@ -44,6 +44,19 @@ DWORD integrity(HANDLE process) {
     return *GetSidSubAuthority(label->Label.Sid,count-1);
 }
 void check(const char* name,bool ok){checks.push_back({name,ok});if(!ok)throw std::runtime_error(name);}
+const char* startup_stage(LONG value) {
+    const char* names[]={"message","collect","hash","scan","bind","frame","ready"};
+    return value>=0&&value<7?names[value]:"unknown";
+}
+void write_startup() {
+    if(!have_observation){std::cout<<"null";return;}
+    std::cout<<"{\"stage\":"<<std::quoted(startup_stage(observation.startup_stage))
+        <<",\"phase\":"<<observation.phase<<",\"hook_tid\":"<<observation.hook_tid
+        <<",\"worker_tid\":"<<observation.worker_tid<<",\"render_tid\":"<<observation.render_tid
+        <<",\"hook_remove\":"<<observation.hook_remove
+        <<",\"module_pinned\":"<<(observation.module_pinned?"true":"false")
+        <<",\"collection_ms\":"<<observation.collection_ms<<",\"result_count\":"<<observation.result_count<<'}';
+}
 void write_code_probe(const SlCodeProbe (&codes)[SL_CODE_PROBES]) {
     std::cout<<'[';
     const char* roles[]={"push","update","push_call_context","layer_destructor","gear_setter"};
@@ -175,10 +188,17 @@ struct Host {
         ResetEvent(ready);os(PostMessageW(window,SL_O_FIXTURE_QUERY,0,0)!=0,"Query owned fixture state");
         os(WaitForSingleObject(ready,5000)==WAIT_OBJECT_0,"Wait for owned fixture query");MemoryBarrier();
     }
-    void wait_report() {
-        HANDLE waits[]={done,process};const auto wait=WaitForMultipleObjects(2,waits,FALSE,20000);
+    void wait_report(DWORD timeout_ms=60000) {
+        HANDLE waits[]={done,process};const auto wait=WaitForMultipleObjects(2,waits,FALSE,timeout_ms);
         if(wait==WAIT_OBJECT_0+1)throw std::runtime_error("Target exited before observation completed");
-        if(wait!=WAIT_OBJECT_0)throw std::runtime_error("Observation timed out or wait failed; target module residency is unknown until target exits");
+        if(wait==WAIT_FAILED)throw std::runtime_error("Observation wait failed: Win32 "+std::to_string(GetLastError()));
+        if(wait!=WAIT_OBJECT_0) {
+            // Partial fields describe progress only. They never admit a session
+            // or imply that a timed-out worker/module has been removed.
+            MemoryBarrier();std::memcpy(&observation,shared,sizeof(observation));have_observation=true;
+            throw std::runtime_error(std::string("Observation startup timeout: stage=")+startup_stage(observation.startup_stage)
+                +"; target module residency is unknown until target exits");
+        }
         MemoryBarrier();std::memcpy(&observation,shared,sizeof(observation));have_observation=true;
         if(observation.magic!=SL_OBSERVE_MAGIC||observation.version!=SL_OBSERVE_VERSION||observation.struct_size!=sizeof(observation)
            ||observation.nonce!=nonce||observation.target_pid!=pid||observation.creation_time!=creation
@@ -308,7 +328,11 @@ void owned_test() {
     framing.regions={{0x1000,{0xde,0xad}},{0x2000,{0xbe,0xef,1}}};
     const auto framed=sl_observe_snapshot_hash(framing);
     check("snapshot_framing_matches_independent_python_golden",sl_observe_hex(framed.data(),framed.size())=="27e4d90614a6046221b1a9af2ed1e3efcfac38deb9e87add2a1fea229bb0c1c0");
-    Host host(0,"");host.install();
+    Host host(0,"");
+    bool timeout_reported=false;
+    try{host.wait_report(1);}catch(const std::runtime_error& e){timeout_reported=std::string(e.what()).find("stage=message")!=std::string::npos;}
+    check("startup_timeout_keeps_partial_progress",timeout_reported&&have_observation&&observation.startup_stage==SL_START_MESSAGE&&!observation.worker_tid);
+    host.install();
     host.shared->version=SL_OBSERVE_VERSION+1;InterlockedExchange(&host.shared->phase,SL_O_ARMED);
     host.trigger();host.query_fixture();
     check("invalid_request_schema_does_not_scan",host.shared->phase==SL_O_ARMED&&WaitForSingleObject(host.done,0)==WAIT_TIMEOUT&&!host.shared->worker_tid);
@@ -316,6 +340,7 @@ void owned_test() {
     host.shared->version=SL_OBSERVE_VERSION;host.trigger();host.wait_report();
     check("observation_has_valid_identity_and_all_rules",have_observation&&observation.result_count==SL_OBSERVE_RULES&&observation.target_pid==host.pid&&observation.nonce==host.nonce);
     check("worker_runs_outside_target_window_thread",observation.hook_tid==host.tid&&observation.worker_tid&&observation.worker_tid!=host.tid);
+    check("peek_message_starts_one_observation",observation.hook_remove==PM_NOREMOVE);
     check("target_current_image_code_snapshot_complete",observation.complete&&observation.expected_bytes>0&&observation.expected_bytes==observation.copied_bytes&&!observation.gap_count);
     check("target_code_snapshot_fingerprint_published",observation.snapshot_hash_present==1);
     check("diagnostic_module_explicitly_pinned",observation.module_pinned==1);
@@ -400,7 +425,8 @@ int wmain(int argc,wchar_t** argv) {
         // Startup can fail before a Host exists. Keep the --session contract
         // so the controller can classify loading failures and retry them.
         std::cout<<"{\"event\":\"session\",\"state\":\"invalid\",\"target_pid\":"<<pid
-            <<",\"error\":"<<std::quoted(error)<<"}\n"<<std::flush;
+            <<",\"error\":"<<std::quoted(error)<<",\"startup\":";
+        write_startup();std::cout<<"}\n"<<std::flush;
     } else output(error);
     return error.empty()?0:1;
 }

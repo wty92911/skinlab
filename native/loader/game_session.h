@@ -60,6 +60,7 @@ struct GameSession:SessionBinding {
             out.forms_available=p.layer.push&&p.layer.destroy&&p.layer.header(stack,values)&&values[0]==values[1]
                 &&local_copy(stack+0x9c,&gear,1)&&gear==0xff;
             p.publish(result,0);p.ready_sent=true;
+            InterlockedExchange(&out.startup_stage,SL_START_READY);
             if(result!=SL_OK){p.finished=true;InterlockedExchange(&out.phase,SL_O_FAILED);}
             else InterlockedExchange(&out.phase,SL_O_COMPLETE);
             SetEvent(p.work->done);
@@ -180,6 +181,8 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
     if(!s->controller)throw std::runtime_error("Cannot retain controller lifetime handle");
     SlDx11Config cfg{};cfg.struct_size=sizeof(cfg);cfg.binding_kind=s->config.binding_kind;
     cfg.chain=chain;cfg.context=s;cfg.thread_binding=1;cfg.on_control_frame=GameSession::session_frame;
+    // Present may arrive as soon as attach changes the vtable.
+    InterlockedExchange(&work->shared->startup_stage,SL_START_FRAME);
     const auto result=sl_dx11_attach(&cfg,&s->bridge);
     if(result!=SL_OK)throw std::runtime_error("Cannot attach session frame bridge");
     session_active=true;pending.release();return true;

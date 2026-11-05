@@ -10,7 +10,9 @@ use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+// Native startup allows 60 seconds for background/slow game message and frame
+// delivery. Leave time for identity hashing and host cleanup around that wait.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(90);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -97,6 +99,9 @@ impl HostSession {
         tracing::debug!(?reply.state, reply.result, reply.current_skin, %reply.error, "host reply");
         self.last = Some(reply.clone());
         if !reply.succeeded() {
+            if reply.startup.is_some() {
+                tracing::warn!(startup = ?reply.startup, diagnostic = %reply.error, "native startup failed");
+            }
             let failure = classify(&reply.error, reply.result);
             return Err(SessionError { failure, last: self.last.clone().map(Box::new) });
         }

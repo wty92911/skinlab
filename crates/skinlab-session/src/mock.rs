@@ -67,6 +67,7 @@ impl MockBackend {
 
 fn reply(game: &MockGame, state: SessionState) -> HostReply {
     HostReply {
+        startup: None,
         event: "session".into(),
         state,
         result: 0,

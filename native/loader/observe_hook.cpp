@@ -74,6 +74,7 @@ DWORD WINAPI observe(void* parameter) {
     std::shared_ptr<Work> work(static_cast<Work*>(parameter));
     auto& out=*work->shared;out.worker_tid=GetCurrentThreadId();
     try {
+        InterlockedExchange(&out.startup_stage,SL_START_COLLECT);
         auto image=skinlab::profile::collect_current_module(GetModuleHandleW(nullptr));
         out.image_size=image.image_size;out.complete=image.complete?1:0;
         out.expected_bytes=image.expected_bytes;out.copied_bytes=image.copied_bytes;
@@ -82,8 +83,10 @@ DWORD WINAPI observe(void* parameter) {
         if(!image.image_size||image.image_size>128u*1024u*1024u) {
             InterlockedExchange(&out.phase,SL_O_FAILED);
         } else {
+            InterlockedExchange(&out.startup_stage,SL_START_HASH);
             const auto hash=sl_observe_snapshot_hash(image);
             std::memcpy(out.snapshot_hash,hash.data(),hash.size());out.snapshot_hash_present=1;
+            InterlockedExchange(&out.startup_stage,SL_START_SCAN);
             const auto results=skinlab::profile::analyze(image,skinlab::profile::recovered_rules(),
                                                         skinlab::profile::read_current_rva,&image);
             if(results.size()!=SL_OBSERVE_RULES)throw std::runtime_error("Recovered rule count changed");
@@ -106,6 +109,7 @@ DWORD WINAPI observe(void* parameter) {
             }
             if(out.request_session==1) {
                 out.result_count=uint32_t(results.size());
+                InterlockedExchange(&out.startup_stage,SL_START_BIND);
                 if(start_session(work,image,results))return 0;
             }
 
@@ -118,7 +122,7 @@ DWORD WINAPI observe(void* parameter) {
     // returning GetMessage callback can return into an unmapped image.
     InterlockedExchange(&busy,0);SetEvent(work->done);return 0;
 }
-void begin(const MSG& message) {
+void begin(const MSG& message,WPARAM remove) {
     if(!message.wParam||uint64_t(message.wParam)>UINT32_MAX||!message.lParam)return;
     std::unique_ptr<Work> work(new Work);
     const auto name=sl_observe_name(uint32_t(message.wParam),uint64_t(message.lParam));
@@ -144,7 +148,7 @@ void begin(const MSG& message) {
         out.win32_error=GetLastError();copy_text(out.error,"Cannot retain observer module for process lifetime");
         InterlockedExchange(&busy,0);InterlockedExchange(&out.phase,SL_O_FAILED);SetEvent(work->done);return;
     }
-    out.module_pinned=1;out.hook_tid=GetCurrentThreadId();
+    out.module_pinned=1;out.hook_tid=GetCurrentThreadId();out.hook_remove=uint32_t(remove);
     HANDLE thread=CreateThread(nullptr,0,observe,work.get(),0,nullptr);
     if(!thread) {
         out.win32_error=GetLastError();copy_text(out.error,"Cannot create observation worker; module remains pinned");
@@ -155,12 +159,14 @@ void begin(const MSG& message) {
 }
 }
 extern "C" __declspec(dllexport) LRESULT CALLBACK skinlab_observe_hook(int code,WPARAM remove,LPARAM parameter) {
-    if(code>=0&&remove==PM_REMOVE&&parameter) {
+    // PeekMessage may inspect a message before removing it. Claim the request
+    // once through phase, regardless of its queue removal mode; never alter it.
+    if(code>=0&&parameter) {
         const auto& message=*reinterpret_cast<const MSG*>(parameter);
         if(message.message>=0xc000) {
             static const UINT command=RegisterWindowMessageW(SL_OBSERVE_MESSAGE);
             if(command&&message.message==command&&target_scope()) {
-                try{begin(message);}catch(...){/* Never unwind across the Windows hook boundary. */}
+                try{begin(message,remove);}catch(...){/* Never unwind across the Windows hook boundary. */}
             }
         }
     }

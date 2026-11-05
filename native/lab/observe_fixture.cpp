@@ -121,7 +121,17 @@ int wmain(int argc,wchar_t** argv) {
     shared->window=reinterpret_cast<uintptr_t>(window);shared->fixture_tid=GetCurrentThreadId();
     shared->fixture_module_present=GetModuleHandleW(L"skinlab-observe.dll")?1:0;MemoryBarrier();SetEvent(ready);
     MSG message{};BOOL status=0;
-    while((status=GetMessageW(&message,nullptr,0,0))>0){TranslateMessage(&message);DispatchMessageW(&message);}
+    for(;;) {
+        // Observation exercises PM_NOREMOVE followed by PM_REMOVE; session
+        // checks exercise GetMessage's PM_REMOVE-only path independently.
+        if(shared->request_session!=1&&!PeekMessageW(&message,nullptr,0,0,PM_NOREMOVE)) {
+            if(!WaitMessage())return 8;
+            continue;
+        }
+        status=GetMessageW(&message,nullptr,0,0);
+        if(status<=0)break;
+        TranslateMessage(&message);DispatchMessageW(&message);
+    }
     shared->fixture_exited=1;MemoryBarrier();
     // The diagnostic bridge owns another chain reference until process exit.
     if(device_context){device_context->ClearState();device_context->Release();}

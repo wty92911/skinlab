@@ -32,6 +32,8 @@ pub enum HostFailureKind {
     TargetExited,
     TargetChanged,
     NoFrameAck,
+    /// Startup may have left a resident worker; do not blindly load it again.
+    StartupTimeout,
     RecoveryRequired,
     Other,
 }
@@ -50,6 +52,26 @@ impl HostFailureKind {
 }
 
 const FRAGMENTS: &[(&str, HostFailureKind, &str)] = &[
+    (
+        "Observation startup timeout: stage=message",
+        HostFailureKind::StartupTimeout,
+        "游戏未响应接入消息，请在下一局保持游戏画面打开后再启动 SkinLab",
+    ),
+    (
+        "Observation startup timeout: stage=frame",
+        HostFailureKind::StartupTimeout,
+        "未收到游戏画面帧，请在下一局保持游戏画面打开后再启动 SkinLab",
+    ),
+    (
+        "Observation startup timeout",
+        HostFailureKind::StartupTimeout,
+        "游戏组件启动超时，请在下一局重试，并提供日志以便排查",
+    ),
+    (
+        "Observation timed out or wait failed",
+        HostFailureKind::StartupTimeout,
+        "游戏组件启动超时，请在下一局重试，并提供日志以便排查",
+    ),
     ("consistent current player", HostFailureKind::NotReady, "等待英雄载入…"),
     ("Expected exactly one visible unowned window", HostFailureKind::NotReady, "等待游戏窗口就绪…"),
     (
@@ -103,6 +125,16 @@ mod tests {
     #[test]
     fn not_ready_is_retryable() {
         assert!(classify("No consistent current player yet", 0).kind.retryable());
+    }
+
+    #[test]
+    fn startup_timeout_is_translated_without_unsafe_reconnect() {
+        for stage in ["message", "collect", "hash", "scan", "bind", "frame"] {
+            let failure = classify(&format!("Observation startup timeout: stage={stage}"), 0);
+            assert_eq!(failure.kind, HostFailureKind::StartupTimeout);
+            assert!(!failure.kind.retryable());
+            assert!(!failure.message.contains("Observation"));
+        }
     }
 
     #[test]
