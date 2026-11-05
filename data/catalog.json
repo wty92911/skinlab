@@ -3,8 +3,8 @@
   "version": "16.21",
   "locale": "zh_CN",
   "source": "https://game.gtimg.cn/images/lol/act/img/js/",
-  "source_file_time": "2026-10-21 15:57:56",
-  "updated_at_utc": "unix:1793679634",
+  "source_file_time": "2026-10-26 17:41:03",
+  "updated_at_utc": "unix:1793886134",
   "champions": [
     {
       "id": "Aatrox",
@@ -1147,6 +1147,55 @@
           "art": "tencent:skinloading/2bdda062-2a7c-4d12-9b81-664d33e338fc.jpg",
           "requires_special_handling": null,
           "rarity": "Mythic"
+        },
+        {
+          "skin_id": 97,
+          "name": "K/DA 生来惹火 阿狸",
+          "art": "tencent:skinloading/e505755d-5343-4264-bad9-a30f290f8925.jpg",
+          "chromas": [
+            {
+              "skin_id": 98,
+              "name": "星光之途",
+              "art": "tencent:chromas/103/103098.png"
+            },
+            {
+              "skin_id": 99,
+              "name": "萌动之心",
+              "art": "tencent:chromas/103/103099.png"
+            },
+            {
+              "skin_id": 100,
+              "name": "治愈之声",
+              "art": "tencent:chromas/103/103100.png"
+            },
+            {
+              "skin_id": 101,
+              "name": "前卫之范",
+              "art": "tencent:chromas/103/103101.png"
+            },
+            {
+              "skin_id": 102,
+              "name": "飒爽之秀",
+              "art": "tencent:chromas/103/103102.png"
+            },
+            {
+              "skin_id": 103,
+              "name": "灵感之源",
+              "art": "tencent:chromas/103/103103.png"
+            },
+            {
+              "skin_id": 104,
+              "name": "白金巨星",
+              "art": "tencent:chromas/103/103104.png"
+            },
+            {
+              "skin_id": 105,
+              "name": "霸气之美",
+              "art": "tencent:chromas/103/103105.png"
+            }
+          ],
+          "requires_special_handling": null,
+          "rarity": "common"
         }
       ]
     },
@@ -1979,6 +2028,13 @@
               "art": "tencent:chromas/84/84101.png"
             }
           ],
+          "requires_special_handling": null,
+          "rarity": "common"
+        },
+        {
+          "skin_id": 102,
+          "name": "K/DA 生来惹火 焰火杀缭乱 阿卡丽",
+          "art": "tencent:skinloading/8c147c55-6321-4eb1-851d-0e6fd9236238.jpg",
           "requires_special_handling": null,
           "rarity": "common"
         },
@@ -14255,6 +14311,52 @@
           "art": "tencent:skinloading/935f1e55-70d6-425e-a347-0b850d4faa6d.jpg",
           "requires_special_handling": null,
           "rarity": "common"
+        },
+        {
+          "skin_id": 65,
+          "name": "K/DA 生来惹火 伊芙琳",
+          "art": "tencent:skinloading/c31d5565-06ab-4b9f-a7e4-12d787f22c23.jpg",
+          "chromas": [
+            {
+              "skin_id": 67,
+              "name": "霸气之美",
+              "art": "tencent:chromas/28/28067.png"
+            },
+            {
+              "skin_id": 68,
+              "name": "星光之途",
+              "art": "tencent:chromas/28/28068.png"
+            },
+            {
+              "skin_id": 69,
+              "name": "飒爽之秀",
+              "art": "tencent:chromas/28/28069.png"
+            },
+            {
+              "skin_id": 70,
+              "name": "萌动之心",
+              "art": "tencent:chromas/28/28070.png"
+            },
+            {
+              "skin_id": 71,
+              "name": "优雅之仪",
+              "art": "tencent:chromas/28/28071.png"
+            },
+            {
+              "skin_id": 72,
+              "name": "白金巨星",
+              "art": "tencent:chromas/28/28072.png"
+            }
+          ],
+          "requires_special_handling": null,
+          "rarity": "Legend"
+        },
+        {
+          "skin_id": 66,
+          "name": "K/DA 金曲制作人 伊芙琳",
+          "art": "tencent:skinloading/93f19821-7ad6-4ac2-b6c7-237cdfd153c3.jpg",
+          "requires_special_handling": null,
+          "rarity": "Legend"
         }
       ]
     },
@@ -25409,6 +25511,55 @@
           "art": "tencent:skinloading/7ee23cd7-d124-48e2-bfc9-f6caa5caba0f.jpg",
           "requires_special_handling": null,
           "rarity": "HOL"
+        },
+        {
+          "skin_id": 83,
+          "name": "K/DA 生来惹火 卡莎",
+          "art": "tencent:skinloading/a9364f6f-1af5-4f60-8f41-6c8a3ee196c7.jpg",
+          "chromas": [
+            {
+              "skin_id": 84,
+              "name": "星光之途",
+              "art": "tencent:chromas/145/145084.png"
+            },
+            {
+              "skin_id": 85,
+              "name": "优雅之仪",
+              "art": "tencent:chromas/145/145085.png"
+            },
+            {
+              "skin_id": 86,
+              "name": "萌动之心",
+              "art": "tencent:chromas/145/145086.png"
+            },
+            {
+              "skin_id": 87,
+              "name": "治愈之声",
+              "art": "tencent:chromas/145/145087.png"
+            },
+            {
+              "skin_id": 88,
+              "name": "自信之光",
+              "art": "tencent:chromas/145/145088.png"
+            },
+            {
+              "skin_id": 89,
+              "name": "前卫之范",
+              "art": "tencent:chromas/145/145089.png"
+            },
+            {
+              "skin_id": 90,
+              "name": "白金巨星",
+              "art": "tencent:chromas/145/145090.png"
+            },
+            {
+              "skin_id": 91,
+              "name": "霸气之美",
+              "art": "tencent:chromas/145/145091.png"
+            }
+          ],
+          "requires_special_handling": null,
+          "rarity": "common"
         }
       ]
     },

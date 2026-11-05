@@ -3,6 +3,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <skinlab/api.h>
+#include <skinlab/skin_codec.h>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -14,19 +15,11 @@ struct Snapshot { uint32_t encoded; uint32_t skin; };
 bool same(const Snapshot& left, const Snapshot& right) noexcept {
     return left.encoded == right.encoded && left.skin == right.skin;
 }
-uint32_t rotate_right(uint32_t value, uint32_t count) noexcept {
-    count &= 31;
-    return count ? (value >> count) | (value << (32 - count)) : value;
-}
-uint32_t rotate_left(uint32_t value, uint32_t count) noexcept {
-    count &= 31;
-    return count ? (value << count) | (value >> (32 - count)) : value;
-}
 uint32_t SL_CALL encode(uint32_t skin, uint32_t a, uint32_t key, uint32_t b) noexcept {
-    return rotate_right(rotate_right(skin, a) ^ key, b);
+    return skinlab::codec::encode(skin,0,a,key,b,0);
 }
 uint32_t SL_CALL decode(uint32_t value, uint32_t a, uint32_t key, uint32_t b) noexcept {
-    return rotate_left(rotate_left(value, b) ^ key, a);
+    return skinlab::codec::decode(value,0,a,key,b,0);
 }
 const char* SL_CALL status_text(SlStatus status) noexcept {
     switch (status) {
@@ -81,7 +74,7 @@ struct SlRuntime {
     }
     uint32_t decoded(const Snapshot& value) const noexcept {
         const auto& layout = config.layout;
-        return decode(value.encoded, layout.rotation_a, layout.xor_key, layout.rotation_b);
+        return skinlab::codec::decode(value.encoded,layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key);
     }
     bool refresh() const noexcept {
         auto* stack = static_cast<unsigned char*>(config.object_data) + config.layout.character_stack_offset;
@@ -108,6 +101,7 @@ struct Operation {
 SlStatus SL_CALL create(const SlConfig* config, SlRuntime** output) noexcept {
     if (!output || *output || !config || config->struct_size < sizeof(SlConfig)) return SL_INVALID_ARGUMENT;
     if (config->abi_version != SL_ABI_VERSION) return SL_ABI_MISMATCH;
+    if (!skinlab::codec::valid(config->layout.codec_kind,config->layout.rotation_a,config->layout.rotation_b)) return SL_INVALID_ARGUMENT;
     // A real adapter needs a verified runtime profile and loading path first.
     // Accepting guessed game offsets here would misrepresent compatibility.
     if (config->binding_kind != SL_BINDING_LOCAL_FIXTURE && config->binding_kind != SL_BINDING_LEAGUE_EXPERIMENT) return SL_UNSUPPORTED_BINDING;
@@ -166,7 +160,7 @@ SlStatus SL_CALL apply(SlRuntime* runtime, int32_t skin_id) noexcept {
     if (!was_active) runtime->original = before;
     runtime->active = true;
     const auto& layout = runtime->config.layout;
-    const Snapshot desired{encode(static_cast<uint32_t>(skin_id), layout.rotation_a, layout.xor_key, layout.rotation_b), static_cast<uint32_t>(skin_id)};
+    const Snapshot desired{skinlab::codec::encode(static_cast<uint32_t>(skin_id),layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key),static_cast<uint32_t>(skin_id)};
     runtime->write(desired);
     const bool refreshed = runtime->refresh();
     if (runtime->check_target() != SL_OK) {

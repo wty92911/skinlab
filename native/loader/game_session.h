@@ -43,7 +43,7 @@ struct GameSession:SessionBinding {
         if(core&&result==SL_OK) {
             SlState state{};state.struct_size=sizeof(state);
             const auto read=api.state(core,&state);
-            if(read==SL_OK){out.session_skin=state.current_skin;out.session_state=(state.flags&SL_STATE_ACTIVE)?2:1;}
+            if(read==SL_OK){out.session_skin=state.current_skin;out.session_encoded_skin=state.current_encoded_skin;out.session_state=(state.flags&SL_STATE_ACTIVE)?2:1;}
             else {out.session_result=read;if(read==SL_TARGET_CHANGED)out.session_state=5;}
         }
         InterlockedExchange(&out.completed_sequence,sequence);
@@ -88,7 +88,7 @@ struct GameSession:SessionBinding {
             SlState state{};state.struct_size=sizeof(state);
             result=p.clear_form();
             if(result==SL_OK)result=p.api.restore(p.core);
-            if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK)out.session_skin=state.current_skin;
+            if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK){out.session_skin=state.current_skin;out.session_encoded_skin=state.current_encoded_skin;}
             if(result==SL_OK)result=p.api.destroy(&p.core);
             if(result==SL_OK){p.finished=true;out.session_state=3;}
         } else if(command==4) {
@@ -154,7 +154,11 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
             for(const auto& r:results)if(r.name==name&&r.has_candidate)return r.candidate;
             throw std::runtime_error("Required session recipe is not unique/reread-equal");
         };
-        const auto player=find("local_player"),stack=find("character_data_stack"),skin=find("skin_id_encoding");
+        const auto player=find("local_player"),stack=find("character_data_stack");
+        const auto* codec=skinlab::profile::skin_codec(results);
+        if(!codec||(codec->referenced_stack_offset&&codec->referenced_stack_offset!=stack.field_offset))
+            throw std::runtime_error("Required session recipe codec is not unique/stack-consistent");
+        const auto skin=*codec;
         const auto update=find("character_data_stack_update"),getter=find("material_registry_getter"),swap=find("swap_chain");
         s->probe_sites=session_probe_sites(image,results);
         // Full function fingerprints from this build's runtime capture guard
@@ -169,7 +173,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         }
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
-        s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second};
+        s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second,skin.codec_kind,skin.add_key};
         auto& cfg=s->config;cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LEAGUE_EXPERIMENT;
         cfg.layout=s->layout;cfg.object_data=reinterpret_cast<void*>(s->player);cfg.object_size=s->layout.character_stack_offset+skinlab::league::kMinimumStackSkinExtent;
         cfg.context=s;cfg.expected_generation=s->player;cfg.generation=GameSession::generation;cfg.skin_allowed=GameSession::catalog;cfg.refresh=GameSession::refresh;

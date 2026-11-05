@@ -19,6 +19,27 @@ pub struct SupportedBuilds {
     pub builds: Vec<Build>,
 }
 
+/// Offline host diagnostics. Even six unique rules do not verify runtime ABI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskBuildCheck {
+    pub schema_version: u32,
+    pub scope: String,
+    pub disk_sha256: String,
+    pub required_rules_unique: bool,
+    pub runtime_compatible: Option<bool>,
+    pub error: String,
+    pub results: Vec<DiskRuleCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskRuleCheck {
+    pub name: String,
+    pub required: bool,
+    pub state: String,
+    pub match_rvas: Vec<u32>,
+    pub candidate: Option<serde_json::Value>,
+}
+
 impl SupportedBuilds {
     pub fn embedded() -> SupportedBuilds {
         let builds: SupportedBuilds = serde_json::from_str(EMBEDDED).expect("data/builds.json is valid");

@@ -15,6 +15,8 @@ std::vector<Rule> recovered_rules() { return {
     make_rule("window", "48 8B 0D ? ? ? ? FF 15 ? ? ? ? 48 8B 05 ? ? ? ?", Recipe::RipRelative),
     make_rule("character_data_stack", "48 8D 8D ? ? 00 00 44 8B 8C 24 ? ? 00 00", Recipe::FirstWildcardU32),
     make_rule("skin_id_encoding", "C1 CE ? 48 8D 55 ? 81 F6 ? ? ? ? 48 C7 45 ? 00 00 00 00 C1 CE ? 48 8D 8F ? ? ? ? 89 B7 ? ? ? ?", Recipe::SkinEncoding),
+    // 16.22 runtime decoder, independently checked against the current stack.
+    make_rule("skin_id_decoding_with_subtract", "8B 9F ? ? ? ? C1 CB ? 81 F3 ? ? ? ? 81 EB ? ? ? ? C1 CB ? 48 8D 8F ? ? ? ? E8 ? ? ? ? 48 8B CE 4C 8B 00 85 DB", Recipe::SkinDecodingWithSubtract),
     make_rule("swap_chain", "48 8D BB ? ? ? ? C6 83 ? ? ? ? ? 0F 84", Recipe::FirstWildcardU32),
     make_rule("character_data_stack_push", "E8 ? ? ? ? 48 8D 8D ? ? 00 00 E8 ? ? ? ? 48 85 C0 74 ? 48 85 ED", Recipe::CallOrEntry),
     make_rule("character_data_stack_update", "88 54 24 10 55 53 56 57 41 54 41 55 41 56 41", Recipe::CallOrEntry),

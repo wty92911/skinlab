@@ -63,6 +63,14 @@ bool resolve(const Snapshot& s,const Rule& rule,uint32_t at,const uint8_t* bytes
             error="Rotate immediate is outside the recovered 0..31 admission";return false;
         }
         break;
+    case Recipe::SkinDecodingWithSubtract:
+        out.codec_kind=1;out.field_offset=u32(bytes+2);out.rotate_first=bytes[8];
+        out.xor_key=u32(bytes+11);out.add_key=u32(bytes+17);out.rotate_second=bytes[23];
+        out.referenced_stack_offset=u32(bytes+27);
+        if(out.rotate_first>=32||out.rotate_second>=32||!out.referenced_stack_offset||out.referenced_stack_offset>max_field) {
+            error="Invalid skin decoding immediates";return false;
+        }
+        break;
     }
     if(out.field_offset==0||out.field_offset>max_field) {
         error="Field offset fails the observer's conservative 1..1MiB admission";return false;
@@ -103,6 +111,7 @@ void validate(const Snapshot& s,const std::vector<Rule>& rules,uint32_t budget) 
                 throw std::invalid_argument("Missing first wildcard");
             required=r.first_wildcard+4;break;
         case Recipe::SkinEncoding:required=0x25;break;
+        case Recipe::SkinDecodingWithSubtract:required=31;break;
         default:throw std::invalid_argument("Unknown recipe");
         }
         if(r.bytes.size()<required)throw std::invalid_argument("Recipe reads beyond pattern");
@@ -141,6 +150,21 @@ const char* state_name(State s) {
     case State::RereadEqual:return "unique_reread_equal";
     }
     return "invalid_state";
+}
+const Candidate* skin_codec(const std::vector<Result>& results) {
+    const Candidate* found=nullptr;
+    for(const auto& r:results)if(r.name=="skin_id_encoding"||r.name=="skin_id_decoding_with_subtract") {
+        if(r.state==State::Missing)continue;
+        if(!r.has_candidate||found)return nullptr;
+        found=&r.candidate;
+    }
+    if(found&&found->referenced_stack_offset) {
+        bool agrees=false;
+        for(const auto& r:results)if(r.name=="character_data_stack"&&r.has_candidate)
+            agrees=r.candidate.field_offset==found->referenced_stack_offset;
+        if(!agrees)return nullptr;
+    }
+    return found;
 }
 std::vector<Result> analyze(const Snapshot& s,const std::vector<Rule>& rules,
                            ReadRva reader,void* context,uint32_t max_scan_ms) {

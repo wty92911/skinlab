@@ -30,10 +30,10 @@
 - Skins shown as art cards with search and rarity filters; click to apply locally, one click to restore.
 - Chromas: cards show color dots and a count. Selecting the skin unfolds a swatch row under the champion card; hover to preview the model (when the website has one), click to apply. Chromas have their own skin numbers and use the same update path.
 - Ultimate forms: adapted ultimate skins get a form switcher under the champion card once applied.
-- Only connects to game builds verified in [`data/builds.json`](data/builds.json); unknown builds show "not yet supported" and nothing is loaded.
+- Automatically scans an unknown local EXE as data and reports its disk feature checks. Only builds verified in [`data/builds.json`](data/builds.json) connect; static matches do not establish runtime compatibility, and no component is loaded into an unverified game.
 - Restores the original skin and stops the session when the window closes. <kbd>Insert</kbd> shows/hides the window.
 
-Elementalist Lux is the only adapted ultimate so far (ten elements, switched manually); Air and Fire models and Q/W/E/R effects, plus restoration, were checked in Practice Tool. Other ultimate and multi-form skins need per-skin engine research; unadapted ones are marked with `!` and may only apply partially. Chromas still need a Practice Tool check.
+Elementalist Lux on 16.21 is the only adapted ultimate so far (ten elements, switched manually); Air and Fire models and Q/W/E/R effects, plus restoration, were checked in Practice Tool. Its dedicated form path on 16.22 still needs validation and stays disabled when function fingerprints differ. Other ultimate and multi-form skins need per-skin engine research; unadapted ones are marked with `!` and may only apply partially. Chromas still need a Practice Tool check.
 
 ## Download
 

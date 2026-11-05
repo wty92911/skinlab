@@ -6,6 +6,7 @@
 #include "observe_hash.h"
 #include <skinlab/dx11_bridge.h>
 #include <skinlab/league_fields.h>
+#include <skinlab/skin_codec.h>
 #include "session_fixture.h"
 #include <algorithm>
 #include <cstring>
@@ -23,22 +24,23 @@ bool local_copy(uintptr_t address,void* output,size_t size) {
     if(address<0x10000||address>=0x800000000000ULL||size>0x800000000000ULL-address)return false;
     return ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(address),output,size,&done)&&done==size;
 }
-uint32_t rotate_left(uint32_t value,uint8_t count){return count?(value<<count)|(value>>(32-count)):value;}
 void observe_player(SlObserveShared& out,const skinlab::profile::Snapshot& image,const std::vector<skinlab::profile::Result>& results) {
-    const skinlab::profile::Candidate *player_rule=nullptr,*stack_rule=nullptr,*skin_rule=nullptr;
+    const skinlab::profile::Candidate *player_rule=nullptr,*stack_rule=nullptr;
+    const auto* skin_rule=skinlab::profile::skin_codec(results);
     for(const auto& r:results)if(r.has_candidate) {
         if(r.name=="local_player")player_rule=&r.candidate;
         if(r.name=="character_data_stack")stack_rule=&r.candidate;
-        if(r.name=="skin_id_encoding")skin_rule=&r.candidate;
     }
     if(!player_rule||!stack_rule||!skin_rule)return;
+    if(skin_rule->referenced_stack_offset&&skin_rule->referenced_stack_offset!=stack_rule->field_offset)return;
     out.player_read_status=2;uintptr_t player=0,model=0,after=0;
     if(!local_copy(image.module_base+player_rule->rva,&player,8)||!player) {out.player_read_error=GetLastError();return;}
     const auto stack=player+stack_rule->field_offset;
     out.player_address=player;out.stack_address=stack;
     if(!local_copy(player+skin_rule->field_offset,&out.encoded_skin,4)||!local_copy(stack+skinlab::league::kStackSkinOffset,&out.stack_skin,4)
        ||!local_copy(stack+skinlab::league::kStackModelPointerOffset,&model,8)){out.player_read_error=GetLastError();return;}
-    out.decoded_skin=rotate_left(rotate_left(out.encoded_skin,skin_rule->rotate_second)^skin_rule->xor_key,skin_rule->rotate_first);
+    out.decoded_skin=skinlab::codec::decode(out.encoded_skin,skin_rule->codec_kind,skin_rule->rotate_first,
+        skin_rule->xor_key,skin_rule->rotate_second,skin_rule->add_key);
     out.skin_fields_agree=out.decoded_skin==out.stack_skin;
     for(size_t i=0;i<sizeof(out.model_name)-1;++i) {
         if(!local_copy(model+i,&out.model_name[i],1)){out.player_read_error=GetLastError();return;}
@@ -92,11 +94,13 @@ DWORD WINAPI observe(void* parameter) {
                 for(size_t m=0;m<r.matches.size()&&m<2;++m)dest.match_rvas[m]=r.matches[m];
                 dest.rva=r.candidate.rva;dest.field_offset=r.candidate.field_offset;
                 dest.xor_key=r.candidate.xor_key;dest.rotate_first=r.candidate.rotate_first;dest.rotate_second=r.candidate.rotate_second;
+                dest.codec_kind=r.candidate.codec_kind;dest.add_key=r.candidate.add_key;dest.referenced_stack_offset=r.candidate.referenced_stack_offset;
                 copy_text(dest.reason,r.reason);
             }
             observe_player(out,image,results);
             if(out.request_session==2) {
                 auto sites=session_probe_sites(image,results);
+                out.stack_probe.stack_reference_count=sites.stack_reference_count;
                 if(out.player_read_status==1&&out.player_stable&&out.stack_address)resolve_gear_probe(sites,uintptr_t(out.stack_address));
                 collect_code_probe(sites,out.stack_probe.code);
             }

@@ -72,6 +72,7 @@ fn reply(game: &MockGame, state: SessionState) -> HostReply {
         result: 0,
         model: game.model.clone().unwrap_or_default(),
         current_skin: game.current,
+        current_encoded_skin: game.current,
         current_form: game.current_form.map(str::to_string),
         // Like the host: announced for the champion regardless of the applied skin.
         available_forms: skinlab_core::forms::FORM_SETS
@@ -109,7 +110,11 @@ impl Backend for MockBackend {
         let mut game = self.game.lock().unwrap();
         game.connects += 1;
         if game.unsupported {
-            return Err(ConnectError::UnsupportedBuild { version: "99.1.0.0".into(), sha256: "0".repeat(64) });
+            return Err(ConnectError::UnsupportedBuild {
+                version: "99.1.0.0".into(),
+                sha256: "0".repeat(64),
+                diagnostic: skinlab_core::error::build_check_message(None),
+            });
         }
         if game.not_ready > 0 {
             game.not_ready -= 1;

@@ -7,6 +7,7 @@
 #include "observe_hash.h"
 #include "skin_catalog.h"
 #include "lux_forms.h"
+#include <skinlab/skin_codec.h>
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
@@ -25,6 +26,7 @@ struct Check {std::string name;bool passed;};std::vector<Check> checks;
 SlObserveShared observation{};bool have_observation=false,game_mode=false,hook_removed=false;
 
 bool session_requested=false,code_probe_requested=false;
+bool fixture_codec_v2=false;
 std::string target_sha;uint32_t selected_pid=0;
 DWORD observer_integrity=0,target_integrity=0;
 void os(bool ok,const char* action){if(!ok)throw std::runtime_error(std::string(action)+": Win32 "+std::to_string(GetLastError()));}
@@ -48,13 +50,15 @@ void write_code_probe(const SlCodeProbe (&codes)[SL_CODE_PROBES]) {
     for(size_t i=0;i<SL_CODE_PROBES;++i) {
         if(i)std::cout<<',';
         const auto& code=codes[i];
-        std::cout<<"{\"role\":"<<std::quoted(roles[i])<<",\"rva\":"<<code.rva
+        const auto role=i<5?std::string(roles[i]):i<11?"stack_reference_"+std::to_string(i-5):i==11?"material_registry_getter":"swap_chain_context";
+        std::cout<<"{\"role\":"<<std::quoted(role)<<",\"rva\":"<<code.rva
             <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(code.bytes,std::min<size_t>(code.size,sizeof(code.bytes))))<<'}';
     }
     std::cout<<']';
 }
 void write_stack_probe(const SlStackProbe& probe) {
     std::cout<<"{\"schema_version\":"<<probe.schema_version<<",\"sequence\":"<<probe.sequence
+        <<",\"stack_reference_count\":"<<probe.stack_reference_count
         <<",\"render_tid\":"<<probe.render_tid<<",\"refresh_calls\":"<<probe.refresh_calls
         <<",\"read_status\":"<<probe.read_status<<",\"begin\":"<<probe.begin<<",\"end\":"<<probe.end
         <<",\"capacity\":"<<probe.capacity
@@ -79,6 +83,7 @@ std::string sha256(HANDLE file) {
     if(read!=uint64_t(size.QuadPart))throw std::runtime_error("Target file size changed during hashing");
     const auto digest=hash.finish();return sl_observe_hex(digest.data(),digest.size());
 }
+#include "disk_scan.h"
 struct Host {
     HANDLE mapping=nullptr,done=nullptr,ready=nullptr,job=nullptr,image_file=INVALID_HANDLE_VALUE;
     HANDLE process=nullptr;PROCESS_INFORMATION child{};
@@ -116,6 +121,7 @@ struct Host {
         shared->magic=SL_OBSERVE_MAGIC;shared->version=SL_OBSERVE_VERSION;shared->struct_size=sizeof(*shared);
         shared->host_pid=GetCurrentProcessId();shared->target_pid=pid;shared->nonce=nonce;shared->creation_time=creation;
         shared->request_session=session_requested?1:(code_probe_requested?2:0);
+        shared->fixture_codec=fixture_codec_v2?1:0;
         if(!game_pid) {
             os(ResumeThread(child.hThread)!=DWORD(-1),"Start observation fixture");
             os(WaitForSingleObject(ready,10000)==WAIT_OBJECT_0,"Wait for owned fixture window");MemoryBarrier();
@@ -220,6 +226,7 @@ struct Host {
         std::cout<<"{\"event\":\"session\",\"state\":"<<std::quoted(!alive?"target_exited":(state<6?names[state]:"invalid"))<<",\"result\":"<<shared->session_result
             <<",\"model\":"<<std::quoted(std::string(shared->model_name,std::find(shared->model_name,shared->model_name+96,0)))
             <<",\"current_skin\":"<<shared->session_skin<<",\"pending\":"<<(shared->command_sequence!=shared->completed_sequence?"true":"false")
+            <<",\"current_encoded_skin\":"<<shared->session_encoded_skin
             <<",\"module_resident\":true,\"frame_hook_retained\":true,\"render_tid\":"<<shared->render_tid
             <<",\"target_pid\":"<<pid<<",\"allowed_skins\":[";
         const auto* entry=sl_catalog_model(shared->model_name);
@@ -291,6 +298,10 @@ void session_loop(DWORD pid,const std::string& expected) {
     host.command(3);host.session_reply();
 }
 void owned_test() {
+    const uint32_t skins[]={0,1,999,UINT32_MAX},encoded[]={0x3e179126,0x3e1791a6,0x3e1584a6,0x38179126};
+    for(size_t i=0;i<4;++i)check("codec_v2_independent_golden",
+        skinlab::codec::encode(skins[i],1,25,0x5f0510b1,14,0x54cd83ae)==encoded[i]
+        &&skinlab::codec::decode(encoded[i],1,25,0x5f0510b1,14,0x54cd83ae)==skins[i]);
     SlObserveHasher hash;hash.add("abc",3);const auto golden=hash.finish();
     check("sha256_matches_independent_abc_golden",sl_observe_hex(golden.data(),golden.size())=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     skinlab::profile::Snapshot framing;framing.image_size=0x4000;
@@ -303,13 +314,13 @@ void owned_test() {
     check("invalid_request_schema_does_not_scan",host.shared->phase==SL_O_ARMED&&WaitForSingleObject(host.done,0)==WAIT_TIMEOUT&&!host.shared->worker_tid);
     check("windows_loaded_observer_in_distinct_target",host.shared->fixture_module_present&&host.shared->target_pid==host.child.dwProcessId);
     host.shared->version=SL_OBSERVE_VERSION;host.trigger();host.wait_report();
-    check("observation_has_valid_identity_and_all_rules",have_observation&&observation.result_count==16&&observation.target_pid==host.pid&&observation.nonce==host.nonce);
+    check("observation_has_valid_identity_and_all_rules",have_observation&&observation.result_count==SL_OBSERVE_RULES&&observation.target_pid==host.pid&&observation.nonce==host.nonce);
     check("worker_runs_outside_target_window_thread",observation.hook_tid==host.tid&&observation.worker_tid&&observation.worker_tid!=host.tid);
     check("target_current_image_code_snapshot_complete",observation.complete&&observation.expected_bytes>0&&observation.expected_bytes==observation.copied_bytes&&!observation.gap_count);
     check("target_code_snapshot_fingerprint_published",observation.snapshot_hash_present==1);
     check("diagnostic_module_explicitly_pinned",observation.module_pinned==1);
     bool missing=true;for(size_t i=0;i<observation.result_count;++i)missing=missing&&observation.results[i].state==uint32_t(skinlab::profile::State::Missing)&&!observation.results[i].has_candidate;
-    check("nongame_fixture_returns_sixteen_missing_rules",missing);
+    check("nongame_fixture_returns_all_missing_rules",missing);
     host.unhook();host.query_fixture();
     check("unhook_does_not_claim_target_dll_unloaded",hook_removed&&host.shared->fixture_module_present);
     const auto previous=host.shared->fixture_queries;host.query_fixture();
@@ -344,12 +355,14 @@ void output(const std::string& error) {
                 <<",\"reason\":"<<std::quoted(text(r.reason))<<",\"match_count_capped\":"<<(r.match_count_capped?"true":"false")<<",\"match_rvas\":[";
             for(size_t m=0;m<std::min<uint32_t>(r.match_count,2);++m){if(m)std::cout<<',';std::cout<<r.match_rvas[m];}
             std::cout<<"],\"candidate\":";
-            if(r.has_candidate)std::cout<<"{\"rva\":"<<r.rva<<",\"field_offset\":"<<r.field_offset<<",\"xor_key\":"<<r.xor_key<<",\"rotate_first\":"<<r.rotate_first<<",\"rotate_second\":"<<r.rotate_second<<'}';
+            if(r.has_candidate)std::cout<<"{\"rva\":"<<r.rva<<",\"field_offset\":"<<r.field_offset<<",\"xor_key\":"<<r.xor_key<<",\"rotate_first\":"<<r.rotate_first<<",\"rotate_second\":"<<r.rotate_second
+                <<",\"codec_kind\":"<<r.codec_kind<<",\"add_key\":"<<r.add_key<<",\"referenced_stack_offset\":"<<r.referenced_stack_offset<<'}';
             else std::cout<<"null";
             std::cout<<'}';
         }
         std::cout<<"]";
         if(code_probe_requested) {
+            std::cout<<",\"stack_reference_count\":"<<observation.stack_probe.stack_reference_count;
             std::cout<<",\"code_probe\":";write_code_probe(observation.stack_probe.code);
         }
         std::cout<<'}';
@@ -358,8 +371,10 @@ void output(const std::string& error) {
 }
 }
 int wmain(int argc,wchar_t** argv) {
+    if(argc==3&&std::wstring(argv[1])==L"--scan-image")return scan_disk_image(argv[2]);
     DWORD pid=0;std::string expected;
-    const bool fixture_session=argc==2&&std::wstring(argv[1])==L"--fixture-session";
+    fixture_codec_v2=argc==2&&std::wstring(argv[1])==L"--fixture-session-v2";
+    const bool fixture_session=argc==2&&(std::wstring(argv[1])==L"--fixture-session"||fixture_codec_v2);
     session_requested=fixture_session;
     if((argc==5||(argc==6&&(std::wstring(argv[5])==L"--session"||std::wstring(argv[5])==L"--probe-code")))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {
         const std::wstring number=argv[2];

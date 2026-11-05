@@ -22,6 +22,9 @@ Usage: cargo xtask <task>
   build-id <League of Legends.exe>
         Print the version and SHA256 entry for data/builds.json. Add it only after
         completing docs/ADAPTATION.md.
+  check-build <League of Legends.exe>
+        Scan disk PE features without launching or attaching to the game. This
+        diagnostic never grants runtime compatibility or changes data/builds.json.
   verify
         Windows: run the host self-test and the controller against the WARP fixture.
   release <x.y.z> [--push]
@@ -42,6 +45,17 @@ fn main() -> Result<()> {
             Some(exe) => build_id(Path::new(exe)),
             None => bail!("build-id needs the game executable path"),
         },
+        Some("check-build") => {
+            let exe = args.get(1).context("check-build needs the game executable path")?;
+            let bundle = skinlab_session::NativeBundle::from_repo(&root).context("run cargo xtask native first")?;
+            let check = skinlab_session::game::check_build(&bundle.verify()?, Path::new(exe))?;
+            println!("{}", serde_json::to_string_pretty(&check)?);
+            println!("{}", skinlab_core::error::build_check_message(Some(&check)));
+            if !check.error.is_empty() {
+                bail!("disk image scan failed");
+            }
+            Ok(())
+        }
         Some("verify") => verify::run(&root),
         Some("release") => release::release(&root, &args[1..]),
         Some("release-notes") => release::notes(&root, &args[1..]),

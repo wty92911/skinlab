@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-enum { SL_ABI_VERSION = 1 };
+enum { SL_ABI_VERSION = 2 };
 typedef enum SlStatus {
     SL_OK = 0,
     SL_INVALID_ARGUMENT,
@@ -50,6 +50,8 @@ typedef struct SlLayout {
     uint32_t rotation_a;
     uint32_t xor_key;
     uint32_t rotation_b;
+    uint32_t codec_kind; /* 0: legacy ROR/XOR/ROR; 1: inverse ROR/XOR/SUB/ROR */
+    uint32_t add_key;
 } SlLayout;
 
 /* Callbacks run synchronously on the creating thread and must not throw.

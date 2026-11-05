@@ -5,6 +5,11 @@
       "version": "16.21.832.5350",
       "region": "cn",
       "sha256": "8dd49307106f45f65288425ce5291b9de4d0ad50e721d9255c0f63b888baf0ee"
+    },
+    {
+      "version": "16.22.834.9083",
+      "region": "cn",
+      "sha256": "56b4b571b14edc503a6da83c4a08af0633703ea161a8f2bc0b4be359cd36294f"
     }
   ]
 }

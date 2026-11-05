@@ -86,7 +86,8 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
 extern "C" __declspec(dllexport) int __cdecl skinlab_get_session_fixture(SlSessionFixtureConfig* output) {
     if(!output||output->struct_size!=sizeof(*output)||!fixture_chain)return 0;
     SlConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LOCAL_FIXTURE;
-    cfg.layout={0x20,0x80,0x38,5,0xa5192d37,11};cfg.object_data=object;cfg.object_size=sizeof(object);
+    cfg.layout=shared->fixture_codec?SlLayout{0x20,0x80,0x38,25,0x5f0510b1,14,1,0x54cd83ae}:SlLayout{0x20,0x80,0x38,5,0xa5192d37,11,0,0};
+    cfg.object_data=object;cfg.object_size=sizeof(object);
     cfg.expected_generation=1;cfg.generation=generation;cfg.skin_allowed=allowed;cfg.refresh=refresh;
     output->core=cfg;output->chain=fixture_chain;return 1;
 }
@@ -109,7 +110,7 @@ int wmain(int argc,wchar_t** argv) {
         desc.OutputWindow=window;desc.Windowed=TRUE;desc.SwapEffect=DXGI_SWAP_EFFECT_DISCARD;
         const D3D_FEATURE_LEVEL level=D3D_FEATURE_LEVEL_11_0;
         if(FAILED(D3D11CreateDeviceAndSwapChain(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,&level,1,D3D11_SDK_VERSION,&desc,&fixture_chain,&device,nullptr,&device_context)))return 9;
-        const uint32_t original=0xa6f4a325;std::memcpy(object+0x20,&original,4);
+        const uint32_t original=shared->fixture_codec?0x3e179126:0xa6f4a325;std::memcpy(object+0x20,&original,4);
         // Two synthetic opaque layers. Their shape is a fixture contract,
         // never evidence for the layout of a game CharacterStackData entry.
         layers[0]=0x42;layers[sizeof(layers)-1]=0x7d;

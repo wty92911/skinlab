@@ -3,7 +3,19 @@
 //! the Chinese message shown to the player. The host speaks English
 //! diagnostics; this table is the only place that knows their wording.
 
+use crate::builds::DiskBuildCheck;
 use serde::Serialize;
+
+/// Wording for an unknown build; disk matches never grant runtime support.
+pub fn build_check_message(check: Option<&DiskBuildCheck>) -> String {
+    match check {
+        Some(check) if check.error.is_empty() && check.required_rules_unique => {
+            "文件特征检查通过，仍需确认运行时结构与调用兼容性".into()
+        }
+        Some(check) if check.error.is_empty() => "无法从游戏文件确认兼容性，请等待 SkinLab 适配".into(),
+        _ => "自动检查未完成，请等待适配或重新构建 SkinLab".into(),
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

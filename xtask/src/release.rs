@@ -98,7 +98,7 @@ pub fn notes(root: &Path, args: &[String]) -> Result<()> {
         catalog.champions.len(),
         catalog.skin_count()
     ));
-    out.push_str("游戏更新到未适配的版本时，SkinLab 会显示“游戏版本尚未适配”且不会接入。\n\n");
+    out.push_str("未知游戏版本会先执行只读文件特征检查；运行时兼容性尚未验证时不会接入游戏。\n\n");
     out.push_str(&format!("## 变更{}\n\n", previous.as_ref().map(|p| format!("（自 {p}）")).unwrap_or_default()));
     out.push_str(if log.is_empty() { "- 无代码变更" } else { &log });
     out.push_str("\n\n## 安装\n\n");

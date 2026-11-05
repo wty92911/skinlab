@@ -10,18 +10,36 @@
 | `crates/skinlab-core/src/protocol.rs` | host 会话 JSON 协议的 Rust 端定义 |
 | `native/src/profile_rules_generated.cpp` | 已恢复并提交的机器码特征与解析配方；构建直接使用，无需原 DLL |
 | `native/src/profile_scan.cpp` | 匹配特征、解析 RIP 相对位移／字段偏移／编码参数 |
+| `native/loader/disk_scan.h` | 只读解析磁盘 PE、复用扫描规则，不执行目标文件 |
 | `native/include/skinlab/league_fields.h` | CharacterDataStack 内部成员偏移 |
 | `native/loader/game_session.h` | 解析运行时对象、建立会话、把命令交给帧回调 |
 | `native/src/core.cpp` | 编号编码、快照、应用、刷新及恢复 |
+| `native/include/skinlab/skin_codec.h` | 已确认的两类可逆皮肤编码算法，参数由代码特征解析 |
 | `native/src/dx11_bridge.cpp` | 在 DX11 Present 所在线程处理更新命令 |
 
 host 以 `--session` 启动时，接入失败也必须返回 `event: "session"` 的单行 JSON（尚未建成会话时用 `state: "invalid"` 并携带 `error`），不能返回普通观察报告。控制器据此分类错误；英雄尚未载入时等待重试，版本或关键特征检查失败时停止接入。`cargo xtask verify` 同时检查启动失败协议与正常 fixture 会话。
 
-适配时可向新的 host 会话发送 `inspect`：命令在已有帧线程执行，返回 `stack_probe`，包括 stack 的 176 字节前缀、长度不超过 64 KiB 的候选层区间的头尾各最多 256 字节，以及 push、update、调用点上下文、层析构和 gear 处理函数各最多 4096 字节代码。代码和对象跨度均回读；回读变化、区间无效或目标改变会分别标记，失败采样不会复用旧序号。原始字节及回读一致仅用于分析，不证明结构布局或引擎调用语义。观察模式的 `--probe-code` 只在采集线程读取这些代码，不建立帧会话、不调用引擎。共享内存协议为 v7，host、DLL 和 fixture 必须同步重建。UI 不提供采集命令；实际游戏采集仍须安排训练模式。
+适配时可向新的 host 会话发送 `inspect`：命令在已有帧线程执行，返回 `stack_probe`，包括 stack 的 176 字节前缀、长度不超过 64 KiB 的候选层区间的头尾各最多 256 字节，以及 push、update、调用点上下文、层析构、gear 处理函数、registry getter 和交换链上下文各最多 4096 字节代码。另报告 stack 立即数引用总数，并采集前六处引用附近的代码；这些结构锚点可能不唯一，不据此确认字段或编码算法。代码和对象跨度均回读；回读变化、区间无效或目标改变会分别标记，失败采样不会复用旧序号。原始字节及回读一致仅用于分析，不证明结构布局或引擎调用语义。观察模式的 `--probe-code` 只在采集线程读取这些代码，不建立帧会话、不调用引擎。共享内存协议为 v8、core ABI 为 v2，host、DLL 和 fixture 必须同步重建；会话回复增加 `current_encoded_skin` 供诊断。UI 不提供采集命令；实际游戏采集仍须安排训练模式。
 
 元素使拉克丝：16.21 运行时代码确认层步长 `0xA0`、层内 skin `+0x20`、gear `+0x84`（基础层从 stack `+0x18` 起），push 有 18 个参数且内部执行 update，末参数为字符串。`owned_layer.h` 按引擎 push 建层、按引擎析构释放；仅接受初始额外层为空且基础 gear 为 `0xFF` 的状态，已有层归属或内容变化时拒绝释放。运行时 push、update 和析构完整函数指纹均匹配才启用特殊路径，普通皮肤仍共用原流程。
 
 会话命令 `form LuxAir` 等仅选择 WAD 已确认的九个模型别名，`form Lux` 清除自建层，`restore`／`stop` 同时恢复皮肤；不把资源数组顺序当作 gear 编号。host 通过 `available_forms` 宣告能力；界面只在应用了对应皮肤且能力可用时显示形态切换栏，名称与顺序来自 `crates/skinlab-core/src/forms.rs`（单元测试保证与 `lux_forms.h` 一致）。训练模式已抽查光、风、火及 Q/W/E/R、形态互切和恢复；恢复后额外层为空、基础数据还原，容器可保留引擎分配的容量。自建 fixture 检查 18 参数打包、重复选择、层替换／释放、外部改写和目标失效。
+
+## 自动检查的边界
+
+未知 EXE 在接入前会自动运行 host 的 `--scan-image`，只读磁盘文件，不向游戏加载 DLL；已验证构建仍执行原有运行时检查。维护时可手动运行：
+
+```powershell
+cargo xtask check-build 'C:\WeGameApps\英雄联盟\Game\League of Legends.exe'
+```
+
+先用 `cargo xtask native` 构建；已有游戏占用旧产物时指定新的 `--bundle session-<名称>`。报告区分磁盘 RVA、字段偏移、编码参数和每条规则的唯一性；`unique_disk_reread_equal` 只表示磁盘字节回读一致，`runtime_compatible: null` 始终表示尚未验证运行时兼容。检查本身正常完成但规则缺失时命令仍成功，不能把进程退出码当作适配通过。
+
+磁盘 PE 可能封装运行时代码。16.22.834.9083 的磁盘规则均未命中，但运行时仍保留五项关键配方；皮肤编码则由新规则恢复。不能只凭磁盘结果断言运行时规则失效，亦不能只凭部分匹配放行。即使六项全部匹配，固定成员布局、调用约定、交换链归属和帧线程仍需独立证据；`data/builds.json` 不由扫描命令自动修改。未来自动放行需要先补足这些验证条件。
+
+16.22 的已确认路径：stack 成员为 `+0x3630`，编码皮肤字段为 `+0xBE8`，stack 模型指针和皮肤成员仍分别为 `+0x18`、`+0x38`；更新入口仍为 `(stack, bool force)`。新解码顺序为 `ROR(encoded, 25) → XOR 0x5F0510B1 → SUB 0x54CD83AE → ROR 14`，编码按逆序逆运算，全部使用无符号 32 位回绕。新规则同时解析字段、参数和 stack 引用，要求该引用与独立 stack 配方一致；两类编码规则同时成立或存在歧义时拒绝接入。16.21 的原编码路径保留。
+
+16.22 训练模式已用斯莫德皮肤 1、11 抽查模型／技能效果、恢复和停止还原：更新在实际 Present 线程执行，恢复后编码及 stack 皮肤字段回到原值。普通皮肤仍共用同一更新流程；未据此宣称其他特殊形态兼容。元素使拉克丝的专用函数指纹仍来自 16.21，在 16.22 不匹配时不启用形态功能。
 
 ## Agent 的工作顺序
 

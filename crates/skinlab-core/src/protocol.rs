@@ -60,6 +60,9 @@ pub struct StackProbe {
     /// 1 = reread equal, 2 = unreadable span, 3 = invalid vector bounds,
     /// 4 = target changed, 5 = unstable snapshot, 6 = core state unavailable.
     pub read_status: u32,
+    /// Total structural stack references; at most six code contexts are sampled.
+    #[serde(default)]
+    pub stack_reference_count: u32,
     pub begin: u64,
     pub end: u64,
     pub capacity: u64,
@@ -71,6 +74,9 @@ pub struct StackProbe {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CodeProbe {
+    /// Native shared protocol v8 / core ABI v2 add stack_reference_0..5,
+    /// material_registry_getter and swap_chain_context to the five original roles.
+    /// Every role is diagnostic only; its bytes do not enable an engine binding.
     pub role: String,
     pub rva: u32,
     pub bytes_hex: String,
@@ -86,6 +92,8 @@ pub struct HostReply {
     pub model: String,
     #[serde(default)]
     pub current_skin: u32,
+    #[serde(default)]
+    pub current_encoded_skin: u32,
     #[serde(default)]
     pub current_form: Option<String>,
     #[serde(default)]

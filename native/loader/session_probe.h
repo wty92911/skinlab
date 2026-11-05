@@ -3,16 +3,34 @@
 struct SessionProbeSites {
     uintptr_t image_base=0;
     uint32_t image_size=0;
+    uint32_t stack_reference_count=0;
     uint32_t rvas[SL_CODE_PROBES]{};
 };
 SessionProbeSites session_probe_sites(const skinlab::profile::Snapshot& image,
                                       const std::vector<skinlab::profile::Result>& results) {
     SessionProbeSites sites{};sites.image_base=image.module_base;sites.image_size=image.image_size;
     for(const auto& r:results)if(r.has_candidate) {
+        if(r.name=="character_data_stack") {
+            // Structural diagnostics only: LEA reg64,[base+stack], any register.
+            // Keep the first six code contexts and the total hit count; neither
+            // uniqueness nor these byte matches admit a field or codec.
+            for(const auto& region:image.regions)for(size_t i=0;i+7<=region.bytes.size();++i) {
+                const auto* code=region.bytes.data()+i;uint32_t offset=0;std::memcpy(&offset,code+3,4);
+                if((code[0]&0xf8)==0x48&&code[1]==0x8d&&(code[2]&0xc0)==0x80
+                   &&(code[2]&7)!=4&&offset==r.candidate.field_offset) {
+                    const auto index=sites.stack_reference_count++;
+                    if(index<SL_STACK_CONTEXTS) {
+                        const auto at=region.rva+uint32_t(i);sites.rvas[5+index]=at>=256?at-256:at;
+                    }
+                }
+            }
+        }
         if(r.name=="character_data_stack_update")sites.rvas[1]=r.candidate.rva;
+        if(r.name=="material_registry_getter")sites.rvas[11]=r.candidate.rva;
+        if(r.name=="swap_chain"&&!r.matches.empty())sites.rvas[12]=r.matches[0]>=64?r.matches[0]-64:r.matches[0];
         if(r.name=="character_data_stack_push") {
             sites.rvas[0]=r.candidate.rva;
-            if(!r.matches.empty())sites.rvas[2]=r.matches[0]>=256?r.matches[0]-256:r.matches[0];
+            if(!r.matches.empty())sites.rvas[2]=r.matches[0]>=1024?r.matches[0]-1024:r.matches[0];
         }
     }
     // This code-coordinate is independently observed in 16.21's push body.
@@ -48,6 +66,7 @@ void collect_code_probe(const SessionProbeSites& sites,SlCodeProbe (&codes)[SL_C
 void collect_stack_probe(const SlConfig& config,const SessionProbeSites& sites,
                          LONG sequence,uint32_t refresh_calls,SlStackProbe& out) {
     out={};out.schema_version=1;out.sequence=uint32_t(sequence);
+    out.stack_reference_count=sites.stack_reference_count;
     out.render_tid=GetCurrentThreadId();out.refresh_calls=refresh_calls;
     // The core's callback validates player identity before any object read.
     if(config.generation(config.context)!=config.expected_generation) {out.read_status=4;return;}

@@ -8,6 +8,7 @@ use crate::bundle::{NativeBundle, hex};
 use crate::host::HostSession;
 use crate::live::LiveClient;
 use sha2::{Digest, Sha256};
+use skinlab_core::builds::DiskBuildCheck;
 use skinlab_core::live::ActiveHero;
 use skinlab_core::{Champion, Skin, SupportedBuilds};
 use std::collections::HashMap;
@@ -29,6 +30,27 @@ pub fn sha256_file(path: &Path) -> std::io::Result<String> {
         }
         hasher.update(&buffer[..count]);
     }
+}
+
+/// Runs the host's data-only PE scan. Does not attach to a process or load a DLL.
+pub fn check_build(host: &Path, exe: &Path) -> std::io::Result<DiskBuildCheck> {
+    let mut command = std::process::Command::new(host);
+    command.arg("--scan-image").arg(exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let output = command.output()?;
+    let check: DiskBuildCheck = serde_json::from_slice(&output.stdout)?;
+    if check.schema_version != 1
+        || check.scope != "disk"
+        || check.runtime_compatible.is_some()
+        || (output.status.success() != check.error.is_empty())
+    {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "无效的文件检查报告"));
+    }
+    Ok(check)
 }
 
 /// Hashing the game executable takes a moment; reuse it while size and mtime hold.
@@ -221,8 +243,11 @@ impl Backend for GameBackend {
         let sha256 = self.hashes.sha256(&path).map_err(|e| ConnectError::Setup(format!("无法读取游戏文件：{e}")))?;
         let Some(build) = self.builds.find(&sha256) else {
             let version = file_version(&path).unwrap_or_else(|| "未知".into());
-            tracing::warn!(%version, %sha256, path = %path.display(), "unsupported game build");
-            return Err(ConnectError::UnsupportedBuild { version, sha256 });
+            let check = self.bundle.verify().ok().and_then(|host| check_build(&host, &path).ok());
+            let check = check.filter(|check| check.disk_sha256 == sha256);
+            let diagnostic = skinlab_core::error::build_check_message(check.as_ref());
+            tracing::warn!(%version, %sha256, ?check, path = %path.display(), "unknown game build checked without attaching");
+            return Err(ConnectError::UnsupportedBuild { version, sha256, diagnostic });
         };
         tracing::info!(version = %build.version, pid, "connecting to verified build");
         let host = self.bundle.verify().map_err(|e| ConnectError::Setup(e.to_string()))?;

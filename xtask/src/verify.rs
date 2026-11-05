@@ -14,11 +14,12 @@ pub fn run(root: &Path) -> Result<()> {
     use anyhow::{Context, ensure};
     use skinlab_core::{Catalog, Command, HostReply, SessionState};
     use skinlab_session::game::{FIXTURE_PID, FixtureBackend};
-    use skinlab_session::{Backend, Controller, NativeBundle, Phase, Timing};
+    use skinlab_session::{Backend, Controller, NativeBundle, Phase, Session, Timing};
     use std::time::{Duration, Instant};
 
     let bundle = NativeBundle::from_repo(root).context("run `cargo xtask native` first")?;
     let host = bundle.verify()?;
+    verify_disk_scan(&host, bundle.dir())?;
 
     println!("host self-test");
     let output = std::process::Command::new(&host).current_dir(bundle.dir()).output()?;
@@ -95,6 +96,22 @@ pub fn run(root: &Path) -> Result<()> {
     );
     session.close()?;
 
+    println!("codec v2 apply and restoration against fixture");
+    let mut codec_session = skinlab_session::host::HostSession::spawn(&host, &["--fixture-session-v2".into()], None)?;
+    let before = codec_session.last().context("codec fixture startup")?.clone();
+    ensure!(before.current_skin == 0 && before.current_encoded_skin == 0x3e17_9126, "codec fixture original disagrees");
+    let applied = codec_session.command(Command::Apply(1))?;
+    ensure!(
+        applied.current_skin == 1 && applied.current_encoded_skin == 0x3e17_91a6,
+        "codec v2 encoding disagrees with golden"
+    );
+    let restored = codec_session.command(Command::Restore)?;
+    ensure!(
+        restored.current_skin == 0 && restored.current_encoded_skin == before.current_encoded_skin,
+        "codec v2 failed to restore bytes"
+    );
+    codec_session.close()?;
+
     println!("controller against fixture");
     let mut catalog = Catalog::embedded();
     catalog.champions.push(FixtureBackend::champion());
@@ -143,4 +160,58 @@ pub fn run(root: &Path) -> Result<()> {
 
     println!("verify passed ({checks} controller checks)");
     Ok(())
+}
+
+#[cfg(windows)]
+fn verify_disk_scan(host: &Path, directory: &Path) -> Result<()> {
+    use anyhow::ensure;
+    use skinlab_session::game::check_build;
+    println!("data-only disk scan: RVA mapping, uniqueness and malformed PE rejection");
+    // A synthetic PE carried as data only. No process is launched from this file.
+    let mut bytes = vec![0u8; 0x600];
+    let put16 = |bytes: &mut [u8], at: usize, value: u16| bytes[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    let put32 = |bytes: &mut [u8], at: usize, value: u32| bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    put16(&mut bytes, 0, 0x5a4d);
+    put32(&mut bytes, 0x3c, 0x80);
+    put32(&mut bytes, 0x80, 0x4550);
+    put16(&mut bytes, 0x84, 0x8664);
+    put16(&mut bytes, 0x86, 1);
+    put16(&mut bytes, 0x94, 240);
+    put16(&mut bytes, 0x98, 0x20b);
+    put32(&mut bytes, 0xd0, 0x2000); // SizeOfImage
+    put32(&mut bytes, 0xd4, 0x200); // SizeOfHeaders
+    put32(&mut bytes, 0x190, 0x400); // VirtualSize
+    put32(&mut bytes, 0x194, 0x1000); // RVA
+    put32(&mut bytes, 0x198, 0x400); // SizeOfRawData
+    put32(&mut bytes, 0x19c, 0x200); // PointerToRawData
+    put32(&mut bytes, 0x1ac, 0x6000_0020);
+    let pattern = [0x48, 0x8b, 0x3d, 0xf9, 1, 0, 0, 0x48, 0x85, 0xff, 0x74, 0x15, 0x48, 0x81, 0xc7];
+    bytes[0x200..0x200 + pattern.len()].copy_from_slice(&pattern);
+    let path = directory.join("disk-scan-fixture.pe");
+    let result = (|| -> Result<()> {
+        std::fs::write(&path, &bytes)?;
+        let check = check_build(host, &path)?;
+        let rule = check.results.iter().find(|r| r.name == "local_player").unwrap();
+        ensure!(
+            check.error.is_empty()
+                && check.runtime_compatible.is_none()
+                && !check.required_rules_unique
+                && rule.state == "unique_disk_reread_equal"
+                && rule.match_rvas == [0x1000]
+                && rule.candidate.as_ref().is_some_and(|c| c["rva"] == 0x1200),
+            "disk scan confused raw offsets, RVAs or runtime compatibility"
+        );
+        bytes[0x240..0x240 + pattern.len()].copy_from_slice(&pattern);
+        std::fs::write(&path, &bytes)?;
+        let check = check_build(host, &path)?;
+        let rule = check.results.iter().find(|r| r.name == "local_player").unwrap();
+        ensure!(rule.state == "ambiguous" && rule.candidate.is_none(), "ambiguous disk rule published a candidate");
+        put32(&mut bytes, 0x198, 0x1000);
+        std::fs::write(&path, &bytes)?;
+        let check = check_build(host, &path)?;
+        ensure!(!check.error.is_empty() && check.results.is_empty(), "malformed disk extent was accepted");
+        Ok(())
+    })();
+    std::fs::remove_file(&path)?;
+    result
 }
