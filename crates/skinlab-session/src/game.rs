@@ -241,15 +241,8 @@ impl Backend for GameBackend {
             return Err(ConnectError::Setup("该进程不是英雄联盟对局进程".into()));
         }
         let sha256 = self.hashes.sha256(&path).map_err(|e| ConnectError::Setup(format!("无法读取游戏文件：{e}")))?;
-        let Some(build) = self.builds.find(&sha256) else {
-            let version = file_version(&path).unwrap_or_else(|| "未知".into());
-            let check = self.bundle.verify().ok().and_then(|host| check_build(&host, &path).ok());
-            let check = check.filter(|check| check.disk_sha256 == sha256);
-            let diagnostic = skinlab_core::error::build_check_message(check.as_ref());
-            tracing::warn!(%version, %sha256, ?check, path = %path.display(), "unknown game build checked without attaching");
-            return Err(ConnectError::UnsupportedBuild { version, sha256, diagnostic });
-        };
-        tracing::info!(version = %build.version, pid, "connecting to verified build");
+        let version = file_version(&path).unwrap_or_else(|| "未知".into());
+        tracing::info!(%version, reference_build = self.builds.find(&sha256).is_some(), pid, "resolving current game code");
         let host = self.bundle.verify().map_err(|e| ConnectError::Setup(e.to_string()))?;
         let args = [
             "--observe-game".to_string(),

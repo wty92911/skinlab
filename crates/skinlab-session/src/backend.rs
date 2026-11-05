@@ -23,7 +23,7 @@ impl SessionError {
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
-    #[error("游戏版本 {version} 尚未验证：{diagnostic}")]
+    #[error("游戏版本 {version} 暂时无法接入：{diagnostic}")]
     UnsupportedBuild { version: String, sha256: String, diagnostic: String },
     #[error("{0}")]
     Session(#[from] SessionError),

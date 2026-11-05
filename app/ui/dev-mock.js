@@ -58,7 +58,6 @@ function view(champion) {
     const forms = formsOf(champion.id, s.skin_id);
     return {
       id: s.skin_id, name: s.name, rarity: tier, rarity_label: LABEL[tier],
-      special: (s.requires_special_handling === true || tier === "ultimate") && !forms,
       chromas: (s.chromas ?? []).map((c) => ({ id: c.skin_id, name: c.name, colors: c.colors ?? [], art: artUrl(c.art) })),
       forms, art: artUrl(s.art),
     };
@@ -118,7 +117,7 @@ export async function createMock() {
   const phase = params.get("phase");
   if (phase === "ready") snap = { ...snap, ...view(start), phase: "ready", message: "选择皮肤即生效", current_skin: 0, original_skin: 0, game_version: version };
   else if (phase === "waiting_hero") snap = { ...snap, phase: "waiting_hero", message: "等待英雄载入…", game_version: version };
-  else if (phase === "unsupported") snap = { ...snap, ...view(start), phase: "unsupported", message: "游戏版本 16.22.1.0 尚未适配，请等待 SkinLab 更新", game_version: "16.22.1.0" };
+  else if (phase === "unsupported") snap = { ...snap, ...view(start), phase: "unsupported", message: "无法读取当前游戏数据，请更新 SkinLab 后再试", game_version: "16.22.1.0" };
   else if (phase === "blocked") snap = { ...snap, phase: "blocked", message: "游戏权限高于 SkinLab，请以管理员身份重新打开", game_version: version };
   else if (phase !== "no_game") setTimeout(() => playMatch(start), 1200);
 

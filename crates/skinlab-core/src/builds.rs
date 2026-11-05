@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-//! Game builds whose native adaptation has been verified. A build is added
-//! here only after following `docs/ADAPTATION.md`, never by hash alone.
+//! Reference builds recorded during native adaptation. Entries are informational;
+//! session admission resolves the running game's code rather than using a hash allowlist.
 
 use serde::{Deserialize, Serialize};
 

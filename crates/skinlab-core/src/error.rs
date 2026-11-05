@@ -57,7 +57,7 @@ const FRAGMENTS: &[(&str, HostFailureKind, &str)] = &[
         HostFailureKind::Integrity,
         "游戏权限高于 SkinLab，请以管理员身份重新打开",
     ),
-    ("Current model/skin has no verified", HostFailureKind::UnsupportedSkin, "当前英雄或皮肤尚未纳入已验证支持范围"),
+    ("Current model/skin has no verified", HostFailureKind::UnsupportedSkin, "当前英雄或皮肤暂时无法应用"),
     ("Required session recipe", HostFailureKind::RecipeFailed, "关键版本特征未通过检查，未应用皮肤"),
     (
         "An observation worker is already running",

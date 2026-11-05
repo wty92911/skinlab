@@ -447,15 +447,6 @@ svg { display: block; }
   box-shadow: 0 0 0 1.5px rgb(18 17 15 / 0.7);
 }
 .card .badge .dots i:first-child { margin-left: 0; }
-.card .flag {
-  position: absolute; right: 8px; top: 8px;
-  width: 20px; height: 20px;
-  display: grid; place-items: center;
-  border-radius: 6px;
-  background: var(--warn);
-  color: #1f1e1c;
-  font: 700 12px/1 var(--sans);
-}
 .card[data-tier="base"] { --tier: var(--r-base); }
 .card[data-tier="common"] { --tier: var(--r-common); }
 .card[data-tier="epic"] { --tier: var(--r-epic); }
@@ -510,7 +501,14 @@ svg { display: block; }
 .empty p { margin: 0; max-width: 300px; color: var(--text-2); }
 .empty-art { width: 76px; height: 76px; color: var(--accent); }
 .empty-art svg { width: 100%; height: 100%; }
-.empty-art .spin { transform-origin: 50% 50%; animation: spin 2.4s linear infinite; }
+.empty-art .loader-edge {
+  opacity: 0.18;
+  animation: hex-flow 2.4s ease-in-out infinite;
+  animation-delay: calc(var(--step) * -0.4s);
+}
+.empty-art .loader-core { animation: core-glow 2.4s ease-in-out infinite; }
+@keyframes hex-flow { 0%, 65%, 100% { opacity: 0.18; } 30% { opacity: 1; } }
+@keyframes core-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.95; } }
 .empty-art .breathe { transform-origin: 50% 50%; animation: breathe 2.6s ease-in-out infinite; }
 @keyframes breathe { 50% { transform: scale(0.9); opacity: 0.7; } }
 

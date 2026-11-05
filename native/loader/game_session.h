@@ -129,13 +129,6 @@ struct GameSession:SessionBinding {
         }
     }
 };
-bool layer_code_equal(const SessionProbeSites& sites,uint32_t rva,size_t size,const char* expected) {
-    uint8_t code[2048]{};
-    if(!rva||size>sizeof(code)||rva>=sites.image_size||size>sites.image_size-rva
-       ||!local_copy(sites.image_base+rva,code,size))return false;
-    SlObserveHasher hash;hash.add(code,size);const auto digest=hash.finish();
-    return sl_observe_hex(digest.data(),digest.size())==expected;
-}
 bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Snapshot& image,const std::vector<skinlab::profile::Result>& results) {
     if(session_active)throw std::runtime_error("A session is already active in this module");
     std::unique_ptr<GameSession> pending(new GameSession);
@@ -161,13 +154,12 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         const auto skin=*codec;
         const auto update=find("character_data_stack_update"),getter=find("material_registry_getter"),swap=find("swap_chain");
         s->probe_sites=session_probe_sites(image,results);
-        // Full function fingerprints from this build's runtime capture guard
-        // the special ABI in addition to the ordinary six profile recipes.
-        // A mismatch disables forms and leaves ordinary skins available.
+        // Push/update are resolved by the shared recipes; the destructor is
+        // resolved from push's direct call. 16.21 and 16.22 retain the same
+        // 18-argument push ABI and layer layout. Relocated call operands must
+        // not suppress the form controls after an otherwise compatible patch.
         if(!std::strcmp(out.model_name,"Lux")
-           &&layer_code_equal(s->probe_sites,s->probe_sites.rvas[0],0x437,"6767046dda202acfddc434e9d6cdf26777cfda0e93a31f64e42b00fd1dc67df8")
-           &&layer_code_equal(s->probe_sites,s->probe_sites.rvas[1],0x780,"197ea845aca91c3b0a1b8599c1b33237701f6947108c3db8950883f23c622aec")
-           &&layer_code_equal(s->probe_sites,s->probe_sites.rvas[3],0x9a,"93bb3ca99233b8611be27dc33ba0d52979ba1e1f5c1ac00c451976ad352693eb")) {
+           &&s->probe_sites.rvas[0]&&s->probe_sites.rvas[1]&&s->probe_sites.rvas[3]) {
             s->layer.push=reinterpret_cast<SlLayerPush>(image.module_base+s->probe_sites.rvas[0]);
             s->layer.destroy=reinterpret_cast<SlLayerDestroy>(image.module_base+s->probe_sites.rvas[3]);
         }

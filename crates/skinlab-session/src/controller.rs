@@ -46,8 +46,6 @@ pub struct SkinView {
     pub name: String,
     pub rarity: Rarity,
     pub rarity_label: &'static str,
-    /// Needs form/stack handling the shared update path does not provide yet.
-    pub special: bool,
     pub chromas: Vec<ChromaView>,
     /// Forms the connected session can switch between while this skin is applied.
     pub forms: Option<FormsView>,
@@ -556,7 +554,6 @@ fn skin_views(champion: &Champion, available_forms: &[String]) -> Vec<SkinView> 
                 name: skin.name.clone(),
                 rarity: skin.rarity(),
                 rarity_label: skin.rarity().label(),
-                special: skin.needs_special_handling() && forms.is_none(),
                 chromas: skin
                     .chromas
                     .iter()
@@ -634,7 +631,6 @@ mod tests {
         let mut c = controller(&game);
         c.tick();
         assert_eq!(lux_forms(&c).unwrap().items.len(), 10);
-        assert!(!c.snapshot().skins.iter().find(|s| s.id == 7).unwrap().special);
         c.select_form("LuxAir");
         c.drive();
         assert!(game.lock().unwrap().applied_forms.is_empty());
@@ -671,15 +667,15 @@ mod tests {
     }
 
     #[test]
-    fn forms_need_host_support() {
+    fn base_skin_applies_without_form_controls() {
         let game = MockGame::shared(Some("Lux"));
         game.lock().unwrap().forms = false;
         let mut c = controller(&game);
         c.tick();
         assert!(lux_forms(&c).is_none());
-        assert!(c.snapshot().skins.iter().find(|s| s.id == 7).unwrap().special);
         c.select(7);
         c.drive();
+        assert_eq!(c.snapshot().current_skin, Some(7));
         c.select_form("LuxAir");
         c.drive();
         assert_eq!(c.snapshot().current_form, None);

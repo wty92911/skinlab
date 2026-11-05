@@ -18,11 +18,11 @@ const ROUTINE = new Set(["选择皮肤即生效", "已生效", "已恢复原皮"
 const PHASES = {
   no_game:        { tone: "idle",   label: "等待对局",  title: "请先打开游戏", body: "进入对局后，SkinLab 会自动识别你的英雄。", art: "idle" },
   multiple_games: { tone: "warn",   label: "多个对局",  title: "检测到多个对局", art: "idle" },
-  waiting_hero:   { tone: "busy",   label: "等待英雄",  title: "等待英雄载入", body: "游戏载入完成后会自动接入。", art: "busy" },
-  connecting:     { tone: "busy",   label: "正在载入",  title: "正在载入", body: "正在检查游戏版本并建立会话…", art: "busy" },
+  waiting_hero:   { tone: "busy",   label: "正在识别",  title: "正在识别英雄", body: "载入完成后，皮肤会自动出现。", art: "busy" },
+  connecting:     { tone: "busy",   label: "正在连接",  title: "即将就绪", body: "马上就能选择喜欢的皮肤。", art: "busy" },
   ready:          { tone: "ok",     label: "已接入" },
   applying:       { tone: "busy",   label: "正在切换" },
-  unsupported:    { tone: "warn",   label: "版本未适配", title: "游戏版本尚未适配", art: "warn" },
+  unsupported:    { tone: "warn",   label: "需要更新", title: "暂时无法接入", art: "warn" },
   blocked:        { tone: "danger", label: "未接入",    title: "暂时无法接入", art: "warn" },
   closing:        { tone: "busy",   label: "正在退出",  title: "正在恢复原皮", body: "完成后 SkinLab 会自动退出。", art: "busy" },
 };
@@ -86,7 +86,8 @@ function emptyArt(kind) {
   const hex = "M38 8 64 23v30L38 68 12 53V23z";
   const inner = "M38 26 48 32v12L38 50 28 44V32z";
   if (kind === "busy") {
-    return `<svg viewBox="0 0 76 76" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><path d="${hex}" opacity=".22"/><g class="spin"><path d="M38 8 64 23" stroke-linecap="round"/></g><path d="${inner}" fill="currentColor" stroke="none" class="breathe"/></svg>`;
+    const edges = ["M38 8 64 23", "M64 23v30", "M64 53 38 68", "M38 68 12 53", "M12 53V23", "M12 23 38 8"];
+    return `<svg viewBox="0 0 76 76" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" aria-hidden="true"><path d="${hex}" opacity=".12"/>${edges.map((d, i) => `<path d="${d}" class="loader-edge" style="--step:${i}"/>`).join("")}<path d="${inner}" fill="currentColor" stroke="none" class="loader-core"/></svg>`;
   }
   if (kind === "warn") {
     return `<svg viewBox="0 0 76 76" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><path d="${hex}" opacity=".35"/><path d="M38 27v14" stroke-linecap="round"/><circle cx="38" cy="49" r="2.2" fill="currentColor" stroke="none"/></svg>`;
@@ -320,10 +321,8 @@ function card(skin, index) {
     img.onerror = () => img.remove();
   }
   const label = skin.id === 0 ? "经典" : skin.rarity_label;
-  const flagTip = "终极／多形态皮肤：特殊形态尚未适配，可能只有部分效果";
   let badge = null;
-  if (skin.special) badge = el("span", { class: "flag", title: flagTip, "aria-label": flagTip }, "!");
-  else if (skin.forms) badge = el("span", { class: "badge", title: `${skin.forms.label}可切换` }, `${skin.forms.items.length} 形态`);
+  if (skin.forms) badge = el("span", { class: "badge", title: `${skin.forms.label}可切换` }, `${skin.forms.items.length} 形态`);
   else if (skin.chromas.length) {
     const dots = skin.chromas.slice(0, 3).map((c) => el("i", { style: `--c1:${c.colors[0] ?? "#9a978c"};--c2:${c.colors[1] ?? c.colors[0] ?? "#9a978c"}` }));
     badge = el("span", { class: "badge chroma", title: `${skin.chromas.length} 款炫彩` }, el("span", { class: "dots" }, ...dots), String(skin.chromas.length));
@@ -419,7 +418,6 @@ function renderAbout() {
     ["版本", `SkinLab ${info.version} · ${info.commit}`],
     ["模式", modes[info.mode] ?? info.mode],
     ["皮肤目录", `${info.catalog_version} · ${info.champions} 位英雄 · ${info.skins} 款皮肤 · ${info.chromas} 款炫彩`],
-    ["已适配游戏", info.supported_builds.join("、") || "无"],
     ["许可", `${info.license} · 禁止商业使用`],
     ["源码", repo],
   ];
