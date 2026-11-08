@@ -3227,7 +3227,7 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "skinlab"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -3246,7 +3246,7 @@ dependencies = [
 
 [[package]]
 name = "skinlab-core"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -3255,7 +3255,7 @@ dependencies = [
 
 [[package]]
 name = "skinlab-session"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -4980,7 +4980,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xtask"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "native-tls",
