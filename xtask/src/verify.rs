@@ -21,17 +21,23 @@ pub fn run(root: &Path) -> Result<()> {
     let host = bundle.verify()?;
     verify_disk_scan(&host, bundle.dir())?;
 
-    println!("host self-test");
-    let output = std::process::Command::new(&host).current_dir(bundle.dir()).output()?;
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout).context("host self-test output")?;
-    let failed: Vec<&str> = report["checks"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|c| c["passed"] != true)
-        .filter_map(|c| c["name"].as_str())
-        .collect();
-    ensure!(report["status"] == "passed" && failed.is_empty(), "host self-test failed: {} {failed:?}", report["error"]);
+    for args in [vec![], vec!["--fixture-reconnect-test"]] {
+        println!("host self-test {args:?}");
+        let output = std::process::Command::new(&host).args(args).current_dir(bundle.dir()).output()?;
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).context("host self-test output")?;
+        let failed: Vec<&str> = report["checks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|c| c["passed"] != true)
+            .filter_map(|c| c["name"].as_str())
+            .collect();
+        ensure!(
+            output.status.success() && report["status"] == "passed" && failed.is_empty(),
+            "host self-test failed: {} {failed:?}",
+            report["error"]
+        );
+    }
 
     // An impossible PID fails before installing a hook. Startup failures must
     // use the same JSON envelope as normal replies, not the observation report.

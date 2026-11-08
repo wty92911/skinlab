@@ -3,7 +3,8 @@ name = "skinlab"
 description = "SkinLab desktop app"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# The current single-instance plugin requires Rust 1.90.
+rust-version = "1.90"
 publish.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -21,8 +22,12 @@ serde_json.workspace = true
 tracing.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2.5.5"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [lints]
 workspace = true

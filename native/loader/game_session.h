@@ -130,8 +130,41 @@ struct GameSession:SessionBinding {
         }
     }
 };
+// One bridge remains installed until target exit. Only its frame thread owns
+// the current session; workers publish a fresh candidate through this slot.
+// A stopped session can be replaced without unloading or stacking frame hooks.
+struct SessionBridge {
+    IDXGISwapChain* chain=nullptr;
+    SlDx11Runtime* runtime=nullptr;
+    std::unique_ptr<GameSession> current;
+    std::atomic<GameSession*> pending{nullptr};
+    ~SessionBridge(){delete pending.load();}
+    static void frame(void* context,IDXGISwapChain* chain) {
+        auto& bridge=*static_cast<SessionBridge*>(context);
+        if(bridge.current)GameSession::session_frame(bridge.current.get(),chain);
+        std::unique_ptr<GameSession> next(bridge.pending.exchange(nullptr));
+        if(!next)return;
+        const auto* previous=bridge.current.get();
+        const char* error=nullptr;
+        if(previous) {
+            if(previous->layer.recovery||previous->work->shared->session_state==4)
+                error="Previous session restoration is incomplete; cannot reconnect";
+            else if(!previous->finished||previous->core||previous->layer.owned||previous->work->shared->session_state!=3)
+                error="A session is already active in this module";
+        }
+        if(WaitForSingleObject(next->controller,0)!=WAIT_TIMEOUT)
+            error="Controller exited before session startup";
+        if(error) {
+            auto& out=*next->work->shared;copy_text(out.error,error);
+            InterlockedExchange(&out.phase,SL_O_FAILED);SetEvent(next->work->done);return;
+        }
+        bridge.current=std::move(next);
+        GameSession::session_frame(bridge.current.get(),chain);
+    }
+};
+// Accessed only by the single observation worker; frame-owned state is private.
+SessionBridge* session_bridge=nullptr;
 bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Snapshot& image,const std::vector<skinlab::profile::Result>& results) {
-    if(session_active)throw std::runtime_error("A session is already active in this module");
     std::unique_ptr<GameSession> pending(new GameSession);
     auto* s=pending.get();s->work=work;
     SlSessionFixtureConfig fixture{};fixture.struct_size=sizeof(fixture);
@@ -179,11 +212,22 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
     if(skinlab_get_api(SL_ABI_VERSION,&s->api)!=SL_OK)throw std::runtime_error("Session core API unavailable");
     s->controller=OpenProcess(SYNCHRONIZE,FALSE,work->shared->host_pid);
     if(!s->controller)throw std::runtime_error("Cannot retain controller lifetime handle");
-    SlDx11Config cfg{};cfg.struct_size=sizeof(cfg);cfg.binding_kind=s->config.binding_kind;
-    cfg.chain=chain;cfg.context=s;cfg.thread_binding=1;cfg.on_control_frame=GameSession::session_frame;
-    // Present may arrive as soon as attach changes the vtable.
     InterlockedExchange(&work->shared->startup_stage,SL_START_FRAME);
-    const auto result=sl_dx11_attach(&cfg,&s->bridge);
-    if(result!=SL_OK)throw std::runtime_error("Cannot attach session frame bridge");
-    session_active=true;pending.release();return true;
+    if(session_bridge) {
+        if(session_bridge->chain!=chain)throw std::runtime_error("Session swapchain changed; cannot reconnect");
+        auto* candidate=pending.release();GameSession* empty=nullptr;
+        if(!session_bridge->pending.compare_exchange_strong(empty,candidate)) {
+            delete candidate;throw std::runtime_error("An observation worker is already running");
+        }
+    } else {
+        std::unique_ptr<SessionBridge> bridge(new SessionBridge);
+        bridge->chain=chain;bridge->pending=pending.release();
+        SlDx11Config cfg{};cfg.struct_size=sizeof(cfg);cfg.binding_kind=s->config.binding_kind;
+        cfg.chain=chain;cfg.context=bridge.get();cfg.thread_binding=1;cfg.on_control_frame=SessionBridge::frame;
+        // Present may arrive as soon as attach changes the vtable.
+        const auto result=sl_dx11_attach(&cfg,&bridge->runtime);
+        if(result!=SL_OK)throw std::runtime_error("Cannot attach session frame bridge");
+        session_bridge=bridge.release();
+    }
+    return true;
 }

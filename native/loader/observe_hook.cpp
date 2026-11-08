@@ -12,13 +12,15 @@
 #include <cstring>
 #include <cwchar>
 #include <memory>
+#include <atomic>
 #include <stdexcept>
+#include <cstdio>
 
 extern "C" __declspec(dllexport) LRESULT CALLBACK skinlab_observe_hook(int,WPARAM,LPARAM);
 extern "C" SlStatus SL_CALL skinlab_get_api(uint32_t,SlApi*) noexcept;
 namespace {
+#include "startup_trace.h"
 volatile LONG busy=0;
-bool session_active=false;
 bool local_copy(uintptr_t address,void* output,size_t size) {
     SIZE_T done=0;
     if(address<0x10000||address>=0x800000000000ULL||size>0x800000000000ULL-address)return false;
@@ -110,7 +112,7 @@ DWORD WINAPI observe(void* parameter) {
             if(out.request_session==1) {
                 out.result_count=uint32_t(results.size());
                 InterlockedExchange(&out.startup_stage,SL_START_BIND);
-                if(start_session(work,image,results))return 0;
+                if(start_session(work,image,results)){InterlockedExchange(&busy,0);return 0;}
             }
 
             out.result_count=uint32_t(results.size());InterlockedExchange(&out.phase,SL_O_COMPLETE);
@@ -123,21 +125,32 @@ DWORD WINAPI observe(void* parameter) {
     InterlockedExchange(&busy,0);SetEvent(work->done);return 0;
 }
 void begin(const MSG& message,WPARAM remove) {
-    if(!message.wParam||uint64_t(message.wParam)>UINT32_MAX||!message.lParam)return;
+    startup_trace("request_received",0,uint64_t(message.wParam),remove);
+    if(!message.wParam||uint64_t(message.wParam)>UINT32_MAX||!message.lParam){startup_trace("invalid_request_parameters");return;}
     std::unique_ptr<Work> work(new Work);
     const auto name=sl_observe_name(uint32_t(message.wParam),uint64_t(message.lParam));
     work->mapping=OpenFileMappingW(FILE_MAP_READ|FILE_MAP_WRITE,FALSE,name.c_str());
-    if(!work->mapping)return;
+    if(!work->mapping){startup_trace("open_mapping_failed",GetLastError());return;}
+    startup_trace("mapping_opened");
     work->shared=static_cast<SlObserveShared*>(MapViewOfFile(work->mapping,FILE_MAP_READ|FILE_MAP_WRITE,0,0,sizeof(SlObserveShared)));
-    if(!work->shared)return;
+    if(!work->shared){startup_trace("map_view_failed",GetLastError());return;}
+    startup_trace("mapping_view_opened");
     auto& out=*work->shared;
     const uint64_t creation=sl_creation_time(GetCurrentProcess());
-    if(out.magic!=SL_OBSERVE_MAGIC||out.version!=SL_OBSERVE_VERSION||out.struct_size!=sizeof(out)
-       ||out.host_pid!=uint32_t(message.wParam)||out.nonce!=uint64_t(message.lParam)
-       ||out.target_pid!=GetCurrentProcessId()||out.window!=reinterpret_cast<uintptr_t>(message.hwnd)
-       ||!creation||out.creation_time!=creation||InterlockedCompareExchange(&out.phase,SL_O_RUNNING,SL_O_ARMED)!=SL_O_ARMED)return;
+    if(out.magic!=SL_OBSERVE_MAGIC){startup_trace("magic_mismatch");return;}
+    if(out.version!=SL_OBSERVE_VERSION){startup_trace("version_mismatch",0,out.version,SL_OBSERVE_VERSION);return;}
+    if(out.struct_size!=sizeof(out)){startup_trace("size_mismatch",0,out.struct_size,sizeof(out));return;}
+    if(out.host_pid!=uint32_t(message.wParam)){startup_trace("host_pid_mismatch",0,out.host_pid,uint32_t(message.wParam));return;}
+    if(out.nonce!=uint64_t(message.lParam)){startup_trace("nonce_mismatch");return;}
+    if(out.target_pid!=GetCurrentProcessId()){startup_trace("target_pid_mismatch",0,out.target_pid,GetCurrentProcessId());return;}
+    if(out.window!=reinterpret_cast<uintptr_t>(message.hwnd)){startup_trace("window_mismatch",0,out.window,reinterpret_cast<uintptr_t>(message.hwnd));return;}
+    if(!creation||out.creation_time!=creation){startup_trace("creation_time_mismatch",GetLastError());return;}
+    const auto previous=InterlockedCompareExchange(&out.phase,SL_O_RUNNING,SL_O_ARMED);
+    if(previous!=SL_O_ARMED){startup_trace("request_already_claimed",0,previous);return;}
+    startup_trace("identity_validated");
     work->done=OpenEventW(EVENT_MODIFY_STATE,FALSE,(name+L"-done").c_str());
-    if(!work->done)return;
+    if(!work->done){startup_trace("open_event_failed",GetLastError());return;}
+    startup_trace("completion_event_opened");
     if(InterlockedCompareExchange(&busy,1,0)!=0) {
         copy_text(out.error,"An observation worker is already running");out.win32_error=ERROR_BUSY;
         InterlockedExchange(&out.phase,SL_O_FAILED);SetEvent(work->done);return;
@@ -149,13 +162,15 @@ void begin(const MSG& message,WPARAM remove) {
         InterlockedExchange(&busy,0);InterlockedExchange(&out.phase,SL_O_FAILED);SetEvent(work->done);return;
     }
     out.module_pinned=1;out.hook_tid=GetCurrentThreadId();out.hook_remove=uint32_t(remove);
+    startup_trace("module_pinned");
     HANDLE thread=CreateThread(nullptr,0,observe,work.get(),0,nullptr);
     if(!thread) {
+        startup_trace("create_worker_failed",GetLastError());
         out.win32_error=GetLastError();copy_text(out.error,"Cannot create observation worker; module remains pinned");
         InterlockedExchange(&busy,0);InterlockedExchange(&out.phase,SL_O_FAILED);SetEvent(work->done);return;
     }
     // Ownership has passed to the new worker; it may already have completed.
-    work.release();CloseHandle(thread);
+    startup_trace("worker_created");work.release();CloseHandle(thread);
 }
 }
 extern "C" __declspec(dllexport) LRESULT CALLBACK skinlab_observe_hook(int code,WPARAM remove,LPARAM parameter) {
@@ -165,8 +180,10 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK skinlab_observe_hook(int code,
         const auto& message=*reinterpret_cast<const MSG*>(parameter);
         if(message.message>=0xc000) {
             static const UINT command=RegisterWindowMessageW(SL_OBSERVE_MESSAGE);
-            if(command&&message.message==command&&target_scope()) {
-                try{begin(message,remove);}catch(...){/* Never unwind across the Windows hook boundary. */}
+            if(command&&message.message==command) {
+                startup_trace("private_message_callback",0,code,remove);
+                if(!target_scope()){startup_trace("target_scope_rejected");return CallNextHookEx(nullptr,code,remove,parameter);}
+                try{begin(message,remove);}catch(...){startup_trace("callback_exception");}
             }
         }
     }

@@ -71,9 +71,11 @@ alignas(8) unsigned char object[512]{};
 alignas(8) unsigned char layers[288]{};
 uint64_t __cdecl generation(void*){return 1;}
 int __cdecl allowed(void*,int32_t skin){return skin==0||skin==1;}
-int __cdecl refresh(void*,void* stack,int force){++shared->refresh_calls;return stack==object+0x80&&force==1;}
+bool refresh_succeeds=true;
+int __cdecl refresh(void*,void* stack,int force){++shared->refresh_calls;return refresh_succeeds&&stack==object+0x80&&force==1;}
 LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
     if(message==WM_TIMER&&fixture_chain){fixture_chain->Present(0,0);return 0;}
+    if(message==SL_O_FIXTURE_REFRESH_RESULT){refresh_succeeds=wp!=0;return 0;}
     if(message==SL_O_FIXTURE_QUERY) {
         shared->fixture_module_present=GetModuleHandleW(L"skinlab-observe.dll")?1:0;
         ++shared->fixture_queries;MemoryBarrier();SetEvent(ready);return 0;

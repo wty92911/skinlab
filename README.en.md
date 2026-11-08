@@ -31,7 +31,8 @@
 - Chromas: cards show color dots and a count. Selecting the skin unfolds a swatch row under the champion card; hover to preview the model (when the website has one), click to apply. Chromas have their own skin numbers and use the same update path.
 - Ultimate forms: adapted ultimate skins get a form switcher under the champion card once applied.
 - Resolves the running game's code features and champion data when connecting. Compatible small updates can connect without waiting for a version allowlist update.
-- Restores the original skin and stops the session when the window closes. <kbd>Insert</kbd> shows/hides the window.
+- Restores the original skin and stops the session when the window closes. After a clean stop, reopening reconnects to the same match. <kbd>Insert</kbd> shows/hides the window.
+- Runs as a single instance. Launching it again shows the existing window and a notice instead of starting another session.
 
 Elementalist Lux offers ten elemental forms, switched manually under the champion card after applying the skin. Catalog skins and chromas are directly selectable; cards show rarity, chroma counts and available forms.
 
@@ -41,7 +42,7 @@ Get `SkinLab_*_x64-setup.exe` from [Releases](https://github.com/wty92911/skinla
 
 ## Build from source
 
-Requires Rust stable (MSVC), x64 MinGW-w64 g++ and Node.js.
+Requires Rust stable 1.90+ (MSVC), x64 MinGW-w64 g++ and Node.js.
 
 ```powershell
 cargo xtask native     # native components into out/session/

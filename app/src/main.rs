@@ -180,6 +180,35 @@ fn toggle_main_window(app: &AppHandle) {
     }
 }
 
+/// Duplicate launches never reach setup or start a second controller/host.
+fn show_running_instance(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
+            static NOTICE_OPEN: AtomicBool = AtomicBool::new(false);
+            if NOTICE_OPEN.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let owner = window.hwnd().map(|handle| handle.0 as usize).unwrap_or(0);
+            // Return immediately so the duplicate process can exit; repeated
+            // launches focus the same window without stacking modal notices.
+            std::thread::spawn(move || {
+                let text: Vec<u16> =
+                    "SkinLab 已在运行，不能同时启动两个。请使用已打开的窗口。\0".encode_utf16().collect();
+                let title: Vec<u16> = "SkinLab\0".encode_utf16().collect();
+                // SAFETY: owner is this app's window (or null); both strings
+                // remain alive for the synchronous dialog call on this thread.
+                unsafe { MessageBoxW(owner as _, text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION) };
+                NOTICE_OPEN.store(false, Ordering::SeqCst);
+            });
+        }
+    }
+}
+
 /// Installed: `<resources>/native`. Development: `SKINLAB_NATIVE_DIR`, then the
 /// repository's `out/current.json`.
 fn native_bundle(app: &AppHandle) -> NativeBundle {
@@ -242,7 +271,10 @@ fn demo_hero(catalog: &Catalog) -> String {
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
-    let log_dir = app.path().app_log_dir()?;
+    let log_dir = match std::env::var_os("SKINLAB_LOG_DIR") {
+        Some(dir) => std::path::PathBuf::from(dir),
+        None => app.path().app_log_dir()?,
+    };
     let guard = init_logging(&log_dir)?;
     let session_logs = log_dir.join("sessions");
     prune_session_logs(&session_logs);
@@ -304,6 +336,8 @@ fn main() {
         .build();
 
     tauri::Builder::default()
+        // Register first: reject duplicates before hotkey/controller setup.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| show_running_instance(app)))
         .plugin(shortcuts)
         .setup(setup)
         .invoke_handler(tauri::generate_handler![

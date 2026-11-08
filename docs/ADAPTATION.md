@@ -27,6 +27,10 @@ host 以 `--session` 启动时，接入失败也必须返回 `event: "session"` 
 
 接入消息同时处理 `PeekMessage(PM_NOREMOVE)` 和消息移除回调，通过共享 phase 只启动一个 worker。启动等待上限为 60 秒，控制器预留 90 秒（含文件身份核对）；超时不自动重复加载同一对局。失败会话的 `startup` 记录消息、采集、哈希、特征扫描、绑定、首帧和就绪阶段，以及各线程和模块驻留字段。部分进度仅用于诊断，不作为接入或卸载成功的依据。`cargo xtask verify` 的自建窗口同时检查预览消息和移除消息路径。
 
+正常停止后，同一 bundle 的新 host 可用新共享内存重新接入同一对局：驻留组件复用现有帧桥接，在帧线程确认原会话恢复完成、core 已销毁且无自建层后，替换会话并重新读取原皮。活动会话、恢复未完成、初始化失败或交换链变化时拒绝替换；旧共享内存保持停止，不接受新会话命令。组件和帧回调仍保留到游戏退出，不做热卸载。共享内存布局 v9 与 core ABI v2 不变；更新代码时仍须同步重建 host、DLL 和 fixture。旧版已驻留的对局需结束后再验证新组件。`cargo xtask verify` 检查同一自建窗口连续三次重新接入、应用、停止还原，以及重复接入与恢复失败的拒绝路径；实际游戏的关闭重开仍待训练模式确认。
+
+接入问题的私下调试：构建开发版 `cargo build -p skinlab`，以 `cargo xtask native --bundle session-<名称> --startup-trace` 构建新的原生 bundle，再运行 `scripts/package-debug.ps1 -Bundle session-<名称>`。生成的 ZIP 包含自建窗口检查、详细日志启动入口和日志打包；不创建 tag 或 Release。`SKINLAB_NATIVE_DEBUG=1` 记录 host 启动步骤，`SKINLAB_LOG_DIR` 指定日志目录；默认关闭原生详细日志。诊断 bundle 的 DLL 在自有目录写入最多 96 条独立 `startup-hook-<PID>.log`，记录共享内存、身份校验和事件打开失败；不在 DllMain 写日志。打包入口自动收集到 debug-logs，环境检查核对模拟失败路径的目标日志。主机模块枚举保留 Win32 错误，超时清理逐步记录。
+
 ## 自动接入与离线诊断
 
 每次接入都解析运行时代码特征和当前英雄字段；不因 EXE 未收录而拦截。`data/builds.json` 保留参考信息，SHA256 用于文件身份核对。关键特征无法解析或对象数据不一致时才返回实际错误。维护时可额外执行只读磁盘诊断：

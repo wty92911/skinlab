@@ -33,7 +33,7 @@ impl HostSession {
     /// Starts the host and waits for its first session reply.
     pub fn spawn(host: &Path, args: &[String], log_dir: Option<&Path>) -> Result<HostSession, SessionError> {
         let mut command = std::process::Command::new(host);
-        command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(native_debug_log(log_dir));
         if let Some(dir) = host.parent() {
             command.current_dir(dir);
         }
@@ -179,4 +179,16 @@ fn open_log(dir: &Path) -> Option<File> {
     std::fs::create_dir_all(dir).ok()?;
     let at = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis();
     File::options().create_new(true).append(true).open(dir.join(format!("session-{at}.jsonl"))).ok()
+}
+
+fn native_debug_log(dir: Option<&Path>) -> Stdio {
+    if std::env::var("SKINLAB_NATIVE_DEBUG").as_deref() != Ok("1") {
+        return Stdio::null();
+    }
+    let file = dir.and_then(|dir| {
+        std::fs::create_dir_all(dir).ok()?;
+        let at = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis();
+        File::options().create_new(true).write(true).open(dir.join(format!("native-{at}.log"))).ok()
+    });
+    file.map(Stdio::from).unwrap_or_else(Stdio::null)
 }

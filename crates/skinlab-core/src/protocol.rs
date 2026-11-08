@@ -35,6 +35,7 @@ pub enum SessionState {
     Starting,
     Ready,
     Active,
+    /// This host is finished; a new host can reconnect after a clean restore.
     Stopped,
     Recovery,
     TargetChanged,

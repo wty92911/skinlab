@@ -8,6 +8,7 @@
 #include "skin_catalog.h"
 #include "lux_forms.h"
 #include <skinlab/skin_codec.h>
+#include <skinlab/api.h>
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
@@ -18,6 +19,8 @@
 #include <vector>
 #include <sstream>
 #include <climits>
+#include <cstdlib>
+#include <tlhelp32.h>
 
 namespace {
 // Any install location; identity comes from the disk SHA256 the controller expects.
@@ -29,6 +32,45 @@ bool session_requested=false,code_probe_requested=false;
 bool fixture_codec_v2=false;
 std::string target_sha;uint32_t selected_pid=0;
 DWORD observer_integrity=0,target_integrity=0;
+bool debug_enabled(){const char* value=std::getenv("SKINLAB_NATIVE_DEBUG");return value&&!std::strcmp(value,"1");}
+void debug_progress(const char* step,const SlObserveShared* shared=nullptr) {
+    if(!debug_enabled())return;
+    std::cerr<<"tick="<<GetTickCount64()<<" step="<<step<<" host_pid="<<GetCurrentProcessId()
+        <<" target_pid="<<selected_pid<<" host_integrity="<<observer_integrity<<" target_integrity="<<target_integrity;
+    if(shared)std::cerr<<" phase="<<shared->phase<<" stage="<<shared->startup_stage
+        <<" hook_tid="<<shared->hook_tid<<" worker_tid="<<shared->worker_tid<<" render_tid="<<shared->render_tid
+        <<" module_pinned="<<shared->module_pinned<<" win32_error="<<shared->win32_error;
+    std::cerr<<'\n'<<std::flush;
+}
+void debug_modules(DWORD pid) {
+    if(!debug_enabled())return;
+    HANDLE snapshot=INVALID_HANDLE_VALUE;DWORD error=0;
+    for(unsigned attempt=0;attempt<3;++attempt) {
+        snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPMODULE|TH32CS_SNAPMODULE32,pid);
+        if(snapshot!=INVALID_HANDLE_VALUE)break;
+        error=GetLastError();
+        if(error!=ERROR_BAD_LENGTH)break;
+        Sleep(10);
+    }
+    if(snapshot==INVALID_HANDLE_VALUE){std::cerr<<"module_snapshot_failed pid="<<pid<<" win32="<<error<<'\n'<<std::flush;return;}
+    MODULEENTRY32W entry{};entry.dwSize=sizeof(entry);uint32_t total=0,matches=0;
+    BOOL more=Module32FirstW(snapshot,&entry);
+    if(!more)std::cerr<<"module_first_failed pid="<<pid<<" win32="<<GetLastError()<<'\n';
+    else {
+        do {
+            ++total;
+            if(!_wcsicmp(entry.szModule,L"skinlab-observe.dll")) {
+                ++matches;char path[4096]{};
+                WideCharToMultiByte(CP_UTF8,0,entry.szExePath,-1,path,sizeof(path),nullptr,nullptr);
+                std::cerr<<"observer_module pid="<<pid<<" path="<<std::quoted(path)<<'\n';
+            }
+            more=Module32NextW(snapshot,&entry);
+        } while(more);
+        const auto last=GetLastError();
+        std::cerr<<"module_enumeration pid="<<pid<<" total="<<total<<" observer="<<matches<<" end_win32="<<last<<'\n';
+    }
+    CloseHandle(snapshot);std::cerr<<std::flush;
+}
 void os(bool ok,const char* action){if(!ok)throw std::runtime_error(std::string(action)+": Win32 "+std::to_string(GetLastError()));}
 DWORD integrity(HANDLE process) {
     HANDLE token=nullptr;os(OpenProcessToken(process,TOKEN_QUERY,&token)!=0,"Query message integrity token");
@@ -102,7 +144,7 @@ struct Host {
     HANDLE process=nullptr;PROCESS_INFORMATION child{};
     SlObserveShared* shared=nullptr;HMODULE local_module=nullptr;HHOOK hook=nullptr;HWND window=nullptr;
     uint32_t pid=0,tid=0;uint64_t nonce=0,creation=0;std::wstring directory,name;
-    explicit Host(DWORD game_pid,const std::string& expected_sha) {try {
+    explicit Host(DWORD game_pid,const std::string& expected_sha,Host* fixture_owner=nullptr) {try {
         wchar_t exe[32768];const DWORD units=GetModuleFileNameW(nullptr,exe,32768);
         os(units&&units<32768,"Locate observer host");directory.assign(exe,units);directory.erase(directory.find_last_of(L"\\/")+1);
         os(BCryptGenRandom(nullptr,reinterpret_cast<PUCHAR>(&nonce),sizeof(nonce),BCRYPT_USE_SYSTEM_PREFERRED_RNG)>=0,"Generate observation nonce");
@@ -114,10 +156,10 @@ struct Host {
         os(shared!=nullptr,"Map observation IPC");std::memset(shared,0,sizeof(*shared));
         done=CreateEventW(nullptr,TRUE,FALSE,(name+L"-done").c_str());os(done&&GetLastError()!=ERROR_ALREADY_EXISTS,"Create unique completion event");
         ready=CreateEventW(nullptr,FALSE,FALSE,(name+L"-ready").c_str());os(ready&&GetLastError()!=ERROR_ALREADY_EXISTS,"Create unique fixture event");
-        if(game_pid) {
-            pid=game_pid;
+        if(game_pid||fixture_owner) {
+            pid=fixture_owner?fixture_owner->pid:game_pid;
             process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,pid);os(process!=nullptr,"Open requested game for identity/wait only");
-            validate_process(std::wstring(),expected_sha);
+            validate_process(fixture_owner?directory+L"skinlab-observe-fixture.exe":std::wstring(),expected_sha);
         } else {
             const auto target=directory+L"skinlab-observe-fixture.exe";
             job=CreateJobObjectW(nullptr,nullptr);os(job!=nullptr,"Create owned-child cleanup job");
@@ -135,7 +177,9 @@ struct Host {
         shared->host_pid=GetCurrentProcessId();shared->target_pid=pid;shared->nonce=nonce;shared->creation_time=creation;
         shared->request_session=session_requested?1:(code_probe_requested?2:0);
         shared->fixture_codec=fixture_codec_v2?1:0;
-        if(!game_pid) {
+        if(fixture_owner) {
+            window=fixture_owner->window;shared->window=reinterpret_cast<uintptr_t>(window);
+        } else if(!game_pid) {
             os(ResumeThread(child.hThread)!=DWORD(-1),"Start observation fixture");
             os(WaitForSingleObject(ready,10000)==WAIT_OBJECT_0,"Wait for owned fixture window");MemoryBarrier();
             window=reinterpret_cast<HWND>(shared->window);
@@ -152,7 +196,7 @@ struct Host {
         }
         DWORD window_pid=0;tid=GetWindowThreadProcessId(window,&window_pid);
         os(tid&&window_pid==pid&&WaitForSingleObject(process,0)==WAIT_TIMEOUT,"Validate target window/process lifetime");
-        if(!game_pid)check("fixture_window_matches_created_process",shared->fixture_tid==tid&&window_pid==child.dwProcessId&&pid!=GetCurrentProcessId());
+        if(!game_pid&&!fixture_owner)check("fixture_window_matches_created_process",shared->fixture_tid==tid&&window_pid==child.dwProcessId&&pid!=GetCurrentProcessId());
     } catch(...){cleanup();throw;} }
     void validate_process(const std::wstring& expected,const std::string& expected_sha) {
         wchar_t path[32768];DWORD units=32768;os(QueryFullProcessImageNameW(process,0,path,&units)!=0,"Read requested process image path");
@@ -172,27 +216,43 @@ struct Host {
     }
     void install() {
         observer_integrity=integrity(GetCurrentProcess());target_integrity=integrity(process);
+        debug_progress("integrity_checked",shared);
         if(observer_integrity<target_integrity)
             throw std::runtime_error("Target integrity exceeds observer integrity; no hook installed");
         if(!game_mode)check("integrity_preflight_passed_before_hook",observer_integrity>=target_integrity&&observer_integrity!=0);
         local_module=LoadLibraryExW((directory+L"skinlab-observe.dll").c_str(),nullptr,0x100|0x800);os(local_module!=nullptr,"Load local observation DLL");
+        debug_progress("local_dll_loaded",shared);
         const auto proc=reinterpret_cast<HOOKPROC>(reinterpret_cast<void(*)()>(GetProcAddress(local_module,"skinlab_observe_hook")));os(proc!=nullptr,"Resolve observation hook export");
         DWORD owner=0;os(GetWindowThreadProcessId(window,&owner)==tid&&owner==pid&&WaitForSingleObject(process,0)==WAIT_TIMEOUT,"Revalidate target before hook installation");
         hook=SetWindowsHookExW(WH_GETMESSAGE,proc,local_module,tid);os(hook!=nullptr,"Install requested-thread observation hook");hook_removed=false;
+        debug_progress("hook_installed",shared);
+        if(debug_enabled())std::cerr<<"requested_window="<<reinterpret_cast<uintptr_t>(window)<<" requested_tid="<<tid<<'\n'<<std::flush;
     }
     void trigger() {
         const UINT command=RegisterWindowMessageW(SL_OBSERVE_MESSAGE);os(command!=0,"Register private observation message");
         os(PostMessageW(window,command,GetCurrentProcessId(),LPARAM(nonce))!=0,"Post private observation request");
+        debug_progress("request_posted",shared);
     }
     void query_fixture() {
         ResetEvent(ready);os(PostMessageW(window,SL_O_FIXTURE_QUERY,0,0)!=0,"Query owned fixture state");
         os(WaitForSingleObject(ready,5000)==WAIT_OBJECT_0,"Wait for owned fixture query");MemoryBarrier();
     }
     void wait_report(DWORD timeout_ms=60000) {
-        HANDLE waits[]={done,process};const auto wait=WaitForMultipleObjects(2,waits,FALSE,timeout_ms);
+        HANDLE waits[]={done,process};DWORD wait=WAIT_TIMEOUT;
+        const auto started=GetTickCount64();
+        debug_modules(pid);
+        do {
+            const auto elapsed=GetTickCount64()-started;
+            if(elapsed>=timeout_ms)break;
+            const DWORD remaining=DWORD(timeout_ms-elapsed);
+            wait=WaitForMultipleObjects(2,waits,FALSE,debug_enabled()?std::min<DWORD>(remaining,5000):remaining);
+            debug_progress("completion_wait",shared);
+            if(wait==WAIT_TIMEOUT&&timeout_ms>1000)debug_modules(pid);
+        } while(wait==WAIT_TIMEOUT&&GetTickCount64()-started<timeout_ms);
         if(wait==WAIT_OBJECT_0+1)throw std::runtime_error("Target exited before observation completed");
         if(wait==WAIT_FAILED)throw std::runtime_error("Observation wait failed: Win32 "+std::to_string(GetLastError()));
         if(wait!=WAIT_OBJECT_0) {
+            debug_progress("timeout_detected",shared);
             // Partial fields describe progress only. They never admit a session
             // or imply that a timed-out worker/module has been removed.
             MemoryBarrier();std::memcpy(&observation,shared,sizeof(observation));have_observation=true;
@@ -219,7 +279,7 @@ struct Host {
     void command(uint32_t value,uint32_t skin=0) {
         if(shared->session_state==3) {
             if(value==3)return;
-            throw std::runtime_error("Session has stopped; end the target process before reconnecting");
+            throw std::runtime_error("Session has stopped; start a new host session to reconnect");
         }
         if(WaitForSingleObject(process,0)!=WAIT_TIMEOUT)throw std::runtime_error("Target process has exited");
         const auto started=GetTickCount64();
@@ -267,11 +327,14 @@ struct Host {
         std::cout<<"}\n"<<std::flush;
     }
     void cleanup() {
+        debug_progress("cleanup_begin",shared);
         if(process&&shared&&session_requested&&shared->phase==SL_O_COMPLETE&&shared->session_state!=3) {
             try{command(3);}catch(...){/* Retained target context handles controller exit on its next frame. */}
         }
-        if(hook){if(UnhookWindowsHookEx(hook))hook_removed=true;hook=nullptr;}
-        if(local_module){FreeLibrary(local_module);local_module=nullptr;}
+        if(hook){debug_progress("unhook_begin",shared);const BOOL ok=UnhookWindowsHookEx(hook);const auto error=ok?0:GetLastError();if(ok)hook_removed=true;hook=nullptr;
+            if(debug_enabled())std::cerr<<"unhook_returned win32="<<error<<'\n'<<std::flush;}
+        if(local_module){debug_progress("local_dll_release_begin",shared);const BOOL ok=FreeLibrary(local_module);const auto error=ok?0:GetLastError();local_module=nullptr;
+            if(debug_enabled())std::cerr<<"local_dll_release_returned win32="<<error<<'\n'<<std::flush;}
         // Never close, kill, restart or post fixture control commands to a game.
         if(child.hProcess) {
             DWORD owner=0;if(window&&GetWindowThreadProcessId(window,&owner)&&owner==child.dwProcessId)PostMessageW(window,WM_CLOSE,0,0);
@@ -285,6 +348,7 @@ struct Host {
         if(mapping)CloseHandle(mapping);
         if(done)CloseHandle(done);
         if(ready)CloseHandle(ready);
+        debug_progress("cleanup_end");
     }
     ~Host(){cleanup();}
 };
@@ -317,6 +381,46 @@ void session_loop(DWORD pid,const std::string& expected) {
     }
     host.command(3);host.session_reply();
 }
+void owned_reconnect_test() {
+    auto start=[](Host& host) {
+        host.install();InterlockedExchange(&host.shared->phase,SL_O_ARMED);
+        host.trigger();host.wait_report();host.unhook();
+    };
+    Host owner(0,"");start(owner);
+    const auto render=owner.shared->render_tid;
+    check("reconnect_fixture_initially_ready",owner.shared->session_state==1&&render!=0);
+    owner.command(1,1);
+    {
+        Host duplicate(0,"",&owner);bool rejected=false;
+        try{start(duplicate);}catch(const std::exception&){rejected=true;}
+        check("live_session_rejects_duplicate_without_restoring",rejected&&duplicate.shared->phase==SL_O_FAILED
+            &&owner.shared->session_state==2&&owner.shared->session_skin==1);
+    }
+    // An unsuccessful restore must retain the old core and recovery ownership.
+    os(PostMessageW(owner.window,SL_O_FIXTURE_REFRESH_RESULT,0,0)!=0,"Fail fixture refresh");owner.query_fixture();
+    owner.command(3);
+    check("failed_stop_retains_recovery_session",owner.shared->session_state==4&&owner.shared->session_result==SL_RECOVERY_REQUIRED);
+    {
+        Host recovery(0,"",&owner);bool rejected=false;
+        try{start(recovery);}catch(const std::exception&){rejected=true;}
+        check("recovery_session_cannot_be_replaced",rejected&&recovery.shared->phase==SL_O_FAILED&&owner.shared->session_state==4);
+    }
+    os(PostMessageW(owner.window,SL_O_FIXTURE_REFRESH_RESULT,1,0)!=0,"Restore fixture refresh");owner.query_fixture();
+    owner.command(3);
+    check("stop_acknowledges_original_before_reconnect",owner.shared->session_state==3&&owner.shared->session_skin==0);
+    for(uint32_t i=0;i<3;++i) {
+        Host reopened(0,"",&owner);start(reopened);
+        check("fresh_mapping_reuses_resident_frame_thread",reopened.nonce!=owner.nonce&&reopened.pid==owner.pid
+            &&reopened.shared->render_tid==render&&reopened.shared->session_state==1&&reopened.shared->session_skin==0);
+        reopened.command(1,1);
+        check("reopened_session_applies",reopened.shared->session_state==2&&reopened.shared->session_skin==1);
+        reopened.command(3);
+        check("reopened_session_restores_and_stops",reopened.shared->session_state==3&&reopened.shared->session_skin==0);
+        // The old IPC channel stays stopped and cannot command its replacement.
+        check("old_channel_remains_stopped",owner.shared->session_state==3&&owner.shared->command_sequence==owner.shared->completed_sequence);
+    }
+    std::memcpy(&observation,owner.shared,sizeof(observation));have_observation=true;
+}
 void owned_test() {
     const uint32_t skins[]={0,1,999,UINT32_MAX},encoded[]={0x3e179126,0x3e1791a6,0x3e1584a6,0x38179126};
     for(size_t i=0;i<4;++i)check("codec_v2_independent_golden",
@@ -337,7 +441,17 @@ void owned_test() {
     host.trigger();host.query_fixture();
     check("invalid_request_schema_does_not_scan",host.shared->phase==SL_O_ARMED&&WaitForSingleObject(host.done,0)==WAIT_TIMEOUT&&!host.shared->worker_tid);
     check("windows_loaded_observer_in_distinct_target",host.shared->fixture_module_present&&host.shared->target_pid==host.child.dwProcessId);
-    host.shared->version=SL_OBSERVE_VERSION;host.trigger();host.wait_report();
+    host.shared->version=SL_OBSERVE_VERSION;
+    const auto command=RegisterWindowMessageW(SL_OBSERVE_MESSAGE);
+    os(PostMessageW(host.window,command,GetCurrentProcessId(),LPARAM(host.nonce^1))!=0,"Test missing mapping request");
+    host.query_fixture();
+    check("missing_mapping_does_not_start_worker",host.shared->phase==SL_O_ARMED&&!host.shared->worker_tid);
+    CloseHandle(host.done);host.done=nullptr;
+    host.trigger();host.query_fixture();
+    check("missing_event_does_not_start_worker",host.shared->phase==SL_O_RUNNING&&!host.shared->worker_tid);
+    host.done=CreateEventW(nullptr,TRUE,FALSE,(host.name+L"-done").c_str());os(host.done!=nullptr,"Restore owned fixture completion event");
+    InterlockedExchange(&host.shared->phase,SL_O_ARMED);
+    host.trigger();host.wait_report();
     check("observation_has_valid_identity_and_all_rules",have_observation&&observation.result_count==SL_OBSERVE_RULES&&observation.target_pid==host.pid&&observation.nonce==host.nonce);
     check("worker_runs_outside_target_window_thread",observation.hook_tid==host.tid&&observation.worker_tid&&observation.worker_tid!=host.tid);
     check("peek_message_starts_one_observation",observation.hook_remove==PM_NOREMOVE);
@@ -400,7 +514,8 @@ int wmain(int argc,wchar_t** argv) {
     DWORD pid=0;std::string expected;
     fixture_codec_v2=argc==2&&std::wstring(argv[1])==L"--fixture-session-v2";
     const bool fixture_session=argc==2&&(std::wstring(argv[1])==L"--fixture-session"||fixture_codec_v2);
-    session_requested=fixture_session;
+    const bool fixture_reconnect=argc==2&&std::wstring(argv[1])==L"--fixture-reconnect-test";
+    session_requested=fixture_session||fixture_reconnect;
     if((argc==5||(argc==6&&(std::wstring(argv[5])==L"--session"||std::wstring(argv[5])==L"--probe-code")))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {
         const std::wstring number=argv[2];
         if(!number.empty()&&number.size()<=10&&std::all_of(number.begin(),number.end(),[](wchar_t c){return c>=L'0'&&c<=L'9';})) {
@@ -412,21 +527,22 @@ int wmain(int argc,wchar_t** argv) {
             }
         }
     }
-    if(argc!=1&&!game_mode&&!fixture_session) {
+    if(argc!=1&&!game_mode&&!fixture_session&&!fixture_reconnect) {
         std::cerr<<"Usage: skinlab-observe-host.exe [--observe-game PID EXPECTED_DISK_SHA256 --accept-module-until-exit [--session|--probe-code]]\n";return 2;
     }
     std::string error;
     try {
+        if(fixture_reconnect){owned_reconnect_test();output("");return 0;}
         if(session_requested){session_loop(pid,expected);return 0;}
         if(game_mode){Host host(pid,expected);host.install();InterlockedExchange(&host.shared->phase,SL_O_ARMED);host.trigger();host.wait_report();host.unhook();}
         else owned_test();
-    }catch(const std::exception& e){error=e.what();}
-    if(session_requested) {
+    }catch(const std::exception& e){error=e.what();debug_progress("startup_exception_caught");}
+    if(session_requested&&!fixture_reconnect) {
         // Startup can fail before a Host exists. Keep the --session contract
         // so the controller can classify loading failures and retry them.
         std::cout<<"{\"event\":\"session\",\"state\":\"invalid\",\"target_pid\":"<<pid
             <<",\"error\":"<<std::quoted(error)<<",\"startup\":";
-        write_startup();std::cout<<"}\n"<<std::flush;
+        write_startup();std::cout<<"}\n"<<std::flush;debug_progress("startup_failure_reply_flushed");
     } else output(error);
-    return error.empty()?0:1;
+    debug_progress("host_exit");return error.empty()?0:1;
 }

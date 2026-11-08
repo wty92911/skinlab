@@ -84,10 +84,16 @@ const FRAGMENTS: &[(&str, HostFailureKind, &str)] = &[
     (
         "An observation worker is already running",
         HostFailureKind::AlreadyActive,
-        "本局已有会话或已停止，请在下一局接入",
+        "接入请求正在处理，请稍后重新打开 SkinLab",
     ),
-    ("A session is already active", HostFailureKind::AlreadyActive, "本局已有会话，请在下一局接入"),
-    ("Session has stopped", HostFailureKind::AlreadyActive, "本局会话已停止，请在下一局接入"),
+    ("A session is already active", HostFailureKind::AlreadyActive, "另一个 SkinLab 正在使用本局，请返回原窗口"),
+    ("Session has stopped", HostFailureKind::AlreadyActive, "本次会话已停止，请重新打开 SkinLab"),
+    (
+        "Previous session restoration is incomplete",
+        HostFailureKind::RecoveryRequired,
+        "上次会话尚未完成恢复，请返回原窗口恢复原皮；若已退出，请等待下一局",
+    ),
+    ("Session swapchain changed", HostFailureKind::TargetChanged, "游戏画面对象已变化，请在下一局接入"),
     ("Requested PID does not have", HostFailureKind::WrongImage, "该进程不是英雄联盟对局进程"),
     ("Target disk SHA256", HostFailureKind::BuildMismatch, "游戏文件与已验证版本不一致"),
     ("Target process has exited", HostFailureKind::TargetExited, "对局进程已退出"),
@@ -125,6 +131,17 @@ mod tests {
     #[test]
     fn not_ready_is_retryable() {
         assert!(classify("No consistent current player yet", 0).kind.retryable());
+    }
+
+    #[test]
+    fn reconnect_failures_keep_ownership_and_recovery_distinct() {
+        let active = classify("Target observation failed: A session is already active in this module", 0);
+        assert_eq!(active.kind, HostFailureKind::AlreadyActive);
+        assert!(active.message.contains("原窗口"));
+        let recovery =
+            classify("Target observation failed: Previous session restoration is incomplete; cannot reconnect", 0);
+        assert_eq!(recovery.kind, HostFailureKind::RecoveryRequired);
+        assert!(!recovery.kind.retryable());
     }
 
     #[test]

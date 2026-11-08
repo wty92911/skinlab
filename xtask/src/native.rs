@@ -85,6 +85,9 @@ pub fn build(root: &Path, args: &[String]) -> Result<()> {
 
     let dll = format!("{out}/skinlab-observe.dll");
     let mut dll_args = vec!["-shared"];
+    if args.iter().any(|arg| arg == "--startup-trace") {
+        dll_args.push("-DSKINLAB_STARTUP_TRACE");
+    }
     dll_args.extend(SCAN);
     dll_args.extend([
         "native/src/profile_snapshot_win.cpp",
@@ -134,6 +137,7 @@ pub fn build(root: &Path, args: &[String]) -> Result<()> {
         "compiler": compiler,
         "target": "x86_64-w64-mingw32",
         "bundle": bundle,
+        "startup_trace": args.iter().any(|arg| arg == "--startup-trace"),
         "sources": sources,
         "artifacts": artifacts,
     });

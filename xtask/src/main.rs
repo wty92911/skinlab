@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 const USAGE: &str = "\
 Usage: cargo xtask <task>
 
-  native [--compiler PATH] [--bundle session[-name]]
+  native [--compiler PATH] [--bundle session[-name]] [--startup-trace]
         Build the native host, DLL and WARP fixture into out/<bundle>/ (Windows x64
         MinGW-w64 g++, or x86_64-w64-mingw32-g++ for cross builds).
   catalog-header
