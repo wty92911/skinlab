@@ -5,7 +5,7 @@ using SlLayerPush=void (__fastcall*)(void*,const char*,int32_t,int32_t,
     bool,bool,bool,bool,bool,bool,int8_t,const char*,int32_t,const char*,int32_t,bool,int32_t,const char*);
 using SlLayerDestroy=void (__fastcall*)(void*);
 struct OwnedStackLayer {
-    static constexpr size_t stride=0xa0;
+    static constexpr size_t stride=skinlab::league::kStackLayerStride;
     DWORD thread=0;
     SlLayerPush push=nullptr;
     SlLayerDestroy destroy=nullptr;

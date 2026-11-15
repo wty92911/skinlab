@@ -9,7 +9,7 @@
 [![CI](https://github.com/wty92911/skinlab/actions/workflows/ci.yml/badge.svg)](https://github.com/wty92911/skinlab/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/wty92911/skinlab?include_prereleases&label=release)](https://github.com/wty92911/skinlab/releases)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-c96442)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Windows%20x64-5e5d59)
+![Platform](https://img.shields.io/badge/platform-Windows%2011%20x64-5e5d59)
 
 简体中文 · [English](README.en.md)
 
@@ -41,8 +41,11 @@
 
 ## 下载
 
-从 [Releases](https://github.com/wty92911/skinlab/releases) 下载 `SkinLab_*_x64-setup.exe`。每个版本的说明都列出了它适配的游戏版本、皮肤目录版本和变更记录，并附带 `SHA256SUMS.txt` 用于校验。
+从 [Releases](https://github.com/wty92911/skinlab/releases) 下载 `SkinLab_*_x64-setup.exe`。每个版本的说明突出当前已验证的游戏版本，并列出皮肤目录版本和变更记录，附带 `SHA256SUMS.txt` 用于校验。
 
+当前已验证游戏版本：**16.22.836.1077（国服）**。接入时自动解析当前游戏代码与英雄数据，兼容的小更新无需等待版本白名单更新。
+
+- 系统要求：**Windows 11 x64**。根据此前测试，**Windows 10 无法使用**。
 - 启动时需要管理员权限（与游戏进程权限一致才能接入）。
 - 安装包未做代码签名，Windows 可能提示“未知发布者”。由于程序会向游戏进程加载组件，部分安全软件可能报毒；请自行判断，可阅读源码或自行构建。
 

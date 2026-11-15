@@ -8,6 +8,8 @@ struct GameSession:SessionBinding {
     char model[96]{};
     SessionProbeSites probe_sites{};
     OwnedStackLayer layer{};
+    FormSkinSync form_skins{};
+    SlStatus form_status=SL_OK;
     ~GameSession(){if(controller)CloseHandle(controller);}
     static uint64_t SL_CALL generation(void* context) {
         auto* session=static_cast<GameSession*>(context);
@@ -16,7 +18,30 @@ struct GameSession:SessionBinding {
         return SessionBinding::generation(static_cast<SessionBinding*>(session));
     }
     static int SL_CALL refresh(void* context,void* stack,int force) {
-        return SessionBinding::refresh(static_cast<SessionBinding*>(static_cast<GameSession*>(context)),stack,force);
+        auto& session=*static_cast<GameSession*>(context);
+        uint32_t skin=0;bool changed=false;
+        if(session.form_skins.enabled()
+           &&(!local_copy(reinterpret_cast<uintptr_t>(stack)+session.config.layout.stack_skin_offset,&skin,4)
+              ||session.form_skins.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),skin,changed)!=SL_OK))return 0;
+        if(!SessionBinding::refresh(static_cast<SessionBinding*>(&session),stack,force))return 0;
+        // A failed commit must enter the core's normal rollback/recovery path.
+        return session.form_skins.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),skin,changed,false)==SL_OK&&!changed;
+    }
+    SlStatus synchronize_form() {
+        if(!form_skins.enabled()||form_status!=SL_OK)return form_status;
+        SlState state{};state.struct_size=sizeof(state);
+        auto result=api.state(core,&state);
+        if(result!=SL_OK)return result;
+        if(!(state.flags&SL_STATE_ACTIVE))return SL_OK;
+        if(state.flags&SL_STATE_RECOVERY_REQUIRED)return SL_RECOVERY_REQUIRED;
+        if(state.current_skin<0||uint32_t(state.current_skin)!=state.current_stack_skin)return SL_INCONSISTENT_STATE;
+        const auto stack=reinterpret_cast<uintptr_t>(config.object_data)+config.layout.character_stack_offset;
+        bool changed=false;
+        result=form_skins.synchronize(config,stack,state.current_stack_skin,changed);
+        if(result!=SL_OK)return result;
+        // No per-frame refresh when the game has kept the selected skin.
+        if(changed&&!refresh(this,reinterpret_cast<void*>(stack),1))return SL_RECOVERY_REQUIRED;
+        return config.generation(config.context)==config.expected_generation?SL_OK:SL_TARGET_CHANGED;
     }
     static int SL_CALL catalog(void* context,int32_t skin) {
         (void)context;
@@ -36,6 +61,7 @@ struct GameSession:SessionBinding {
         work->shared->session_form=0;return SL_OK;
     }
     void publish(SlStatus result,LONG sequence) {
+        if(result==SL_OK&&form_status!=SL_OK)result=form_status;
         auto& out=*work->shared;out.session_result=result;
         out.session_form=layer.recovery?sl_lux_form_count:(layer.owned?layer.form:0);
         if(result==SL_TARGET_CHANGED)out.session_state=5;
@@ -75,20 +101,37 @@ struct GameSession:SessionBinding {
         const auto queued_command=out.session_command;
         InterlockedExchange(&out.command_lock,0);
         const bool disconnected=p.controller&&WaitForSingleObject(p.controller,0)==WAIT_OBJECT_0;
-        if(sequence==InterlockedCompareExchange(&out.completed_sequence,0,0)&&!disconnected)return;
+        if(sequence==InterlockedCompareExchange(&out.completed_sequence,0,0)&&!disconnected) {
+            if(p.form_status==SL_OK) {
+                const auto status=p.synchronize_form();
+                if(status!=SL_OK) {
+                    // Stop automatic writes after a failure; restore/stop can
+                    // retry recovery explicitly, including on disconnection.
+                    p.form_status=status==SL_TARGET_CHANGED?status:SL_RECOVERY_REQUIRED;
+                    p.publish(p.form_status,sequence);
+                }
+            }
+            return;
+        }
         const auto command=disconnected?3:queued_command;
         SlStatus result=SL_INVALID_ARGUMENT;
         if(command==1) {
-            result=p.clear_form();
+            result=p.form_status==SL_OK?p.clear_form():p.form_status;
             if(result==SL_OK)result=p.api.apply(p.core,static_cast<int32_t>(requested));
+            if(result==SL_OK) {
+                result=p.synchronize_form();
+                if(result!=SL_OK)p.form_status=result=result==SL_TARGET_CHANGED?result:SL_RECOVERY_REQUIRED;
+            }
         } else if(command==2) {
             result=p.clear_form();
             if(result==SL_OK)result=p.api.restore(p.core);
+            if(result==SL_OK)p.form_status=SL_OK;
         }
         else if(command==3) {
             SlState state{};state.struct_size=sizeof(state);
             result=p.clear_form();
             if(result==SL_OK)result=p.api.restore(p.core);
+            if(result==SL_OK)p.form_status=SL_OK;
             if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK){out.session_skin=state.current_skin;out.session_encoded_skin=state.current_encoded_skin;}
             if(result==SL_OK)result=p.api.destroy(&p.core);
             if(result==SL_OK){p.finished=true;out.session_state=3;}
@@ -199,6 +242,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         }
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
+        s->form_skins.champion=s->model;
         s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second,skin.codec_kind,skin.add_key};
         auto& cfg=s->config;cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LEAGUE_EXPERIMENT;
         cfg.layout=s->layout;cfg.object_data=reinterpret_cast<void*>(s->player);cfg.object_size=s->layout.character_stack_offset+skinlab::league::kMinimumStackSkinExtent;

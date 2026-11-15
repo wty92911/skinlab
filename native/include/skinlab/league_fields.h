@@ -11,5 +11,9 @@ namespace skinlab { namespace league {
 constexpr uint32_t kStackModelPointerOffset=0x18;
 constexpr uint32_t kStackSkinOffset=0x38;
 constexpr uint32_t kMinimumStackSkinExtent=kStackSkinOffset+sizeof(uint32_t);
+// push/update in both 16.21 and 16.22 use 0xA0-byte CharacterStackData
+// entries; skin is +0x20 relative to each entry, not relative to the stack.
+constexpr uint32_t kStackLayerStride=0xa0;
+constexpr uint32_t kStackLayerSkinOffset=0x20;
 } }
 #endif

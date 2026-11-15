@@ -63,6 +63,7 @@ void copy_text(char (&out)[192],const std::string& text) {
 #include "session_binding.h"
 #include "lux_forms.h"
 #include "owned_layer.h"
+#include "form_skin.h"
 #include "session_probe.h"
 #include "game_session.h"
 bool target_scope() {

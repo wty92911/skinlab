@@ -6,6 +6,7 @@
 #include "session_fixture.h"
 #include <d3d11.h>
 #include <cstring>
+#include <skinlab/league_fields.h>
 #include "lux_forms.h"
 
 namespace {
@@ -14,6 +15,7 @@ bool local_copy(uintptr_t address,void* output,size_t size) {
     return ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(address),output,size,&done)&&done==size;
 }
 #include "owned_layer.h"
+#include "form_skin.h"
 struct LayerFixture {
     alignas(8) uint8_t stack[512]{},entries[320]{};
     uint64_t generation=9;
@@ -65,6 +67,64 @@ bool check_owned_layer() {
     fixture.generation=9;skin=0;std::memcpy(fixture.stack+0x38,&skin,4);
     return layer.select(config,stack,1)==SL_INVALID_SKIN&&fixture.pushes==2&&fixture.arguments;
 }
+bool check_form_skin(const FormSkinSync::Rule& rule) {
+    LayerFixture fixture{};
+    SlConfig config{};config.context=&fixture;config.generation=layer_generation;config.expected_generation=9;
+    const auto stack=reinterpret_cast<uintptr_t>(fixture.stack);
+    FormSkinSync sync{};sync.champion=rule.champion;bool changed=false;
+    if(sync.synchronize(config,stack,11,changed)!=SL_OK||changed)return false;
+    auto set_header=[&](uint8_t* entries,size_t size) {
+        const auto begin=reinterpret_cast<uintptr_t>(entries);
+        const uintptr_t header[]={begin,begin+size,begin+size};
+        std::memcpy(fixture.stack,header,sizeof(header));
+    };
+    auto set_layer=[](uint8_t* entry,const char* model,uint32_t skin) {
+        std::memset(entry,0x5a,FormSkinSync::stride);
+        const auto length=uint32_t(std::strlen(model));
+        std::memcpy(entry,&model,8);std::memcpy(entry+8,&length,4);
+        std::memcpy(entry+FormSkinSync::skin_offset,&skin,4);
+    };
+    auto get_skin=[](uint8_t* entry) {
+        uint32_t skin=0;std::memcpy(&skin,entry+FormSkinSync::skin_offset,4);return skin;
+    };
+    // Transform after applying: preserve model/gear/other entry bytes, update
+    // only the form's skin. An unrelated top layer must stay game-owned.
+    set_layer(fixture.entries,rule.alternate,0);
+    set_layer(fixture.entries+FormSkinSync::stride,"OtherChampion",42);
+    set_header(fixture.entries,sizeof(fixture.entries));
+    uint8_t expected[sizeof(fixture.entries)]{};std::memcpy(expected,fixture.entries,sizeof(expected));
+    const uint32_t selected=11;std::memcpy(expected+FormSkinSync::skin_offset,&selected,4);
+    if(sync.synchronize(config,stack,selected,changed)!=SL_OK||!changed
+       ||std::memcmp(expected,fixture.entries,sizeof(expected)))return false;
+    // Stable frames do not request another refresh; inspect never writes.
+    if(sync.synchronize(config,stack,selected,changed)!=SL_OK||changed)return false;
+    if(sync.synchronize(config,stack,18,changed,false)!=SL_OK||!changed||get_skin(fixture.entries)!=selected)return false;
+    if(sync.synchronize(config,stack,18,changed)!=SL_OK||!changed||get_skin(fixture.entries)!=18)return false;
+    // Original can be a chroma. Restoration targets the *current* layer, even
+    // after the game has reallocated it or changed back to the human model.
+    alignas(8) uint8_t replacement[FormSkinSync::stride]{};
+    set_layer(replacement,rule.champion,0);set_header(replacement,sizeof(replacement));
+    if(sync.synchronize(config,stack,54,changed)!=SL_OK||!changed
+       ||get_skin(replacement)!=54||get_skin(fixture.entries)!=18)return false;
+    // Other champions and borrowed transformations are never covered by this rule.
+    sync.champion="Viego";
+    if(sync.synchronize(config,stack,1,changed)!=SL_OK||changed||get_skin(replacement)!=54)return false;
+    sync.champion=rule.champion;
+    // Model rules are scoped to their champion, even when another supported
+    // champion's form appears in the same stack (e.g. a borrowed appearance).
+    for(const auto& other:FormSkinSync::rules)if(std::strcmp(other.champion,rule.champion)) {
+        set_layer(replacement,other.alternate,0);
+        if(sync.synchronize(config,stack,1,changed)!=SL_OK||changed||get_skin(replacement))return false;
+    }
+    // A malformed later entry must reject the entire operation before writes.
+    set_header(fixture.entries,sizeof(fixture.entries));
+    uintptr_t bad_name=1;std::memcpy(fixture.entries+FormSkinSync::stride,&bad_name,8);
+    if(sync.synchronize(config,stack,1,changed)!=SL_INCONSISTENT_STATE||changed||get_skin(fixture.entries)!=18)return false;
+    const uintptr_t malformed[]={1,2,3};std::memcpy(fixture.stack,malformed,sizeof(malformed));
+    if(sync.synchronize(config,stack,1,changed)!=SL_INCONSISTENT_STATE||changed)return false;
+    fixture.generation=10;
+    return sync.synchronize(config,stack,1,changed)==SL_TARGET_CHANGED&&!changed;
+}
 SlObserveShared* shared=nullptr;HANDLE ready=nullptr;
 IDXGISwapChain* fixture_chain=nullptr;ID3D11Device* device=nullptr;ID3D11DeviceContext* device_context=nullptr;
 alignas(8) unsigned char object[512]{};
@@ -96,6 +156,7 @@ extern "C" __declspec(dllexport) int __cdecl skinlab_get_session_fixture(SlSessi
 int wmain(int argc,wchar_t** argv) {
     if(argc!=2)return 2;
     if(!check_owned_layer())return 10;
+    for(const auto& rule:FormSkinSync::rules)if(!check_form_skin(rule))return 11;
     HANDLE mapping=OpenFileMappingW(FILE_MAP_READ|FILE_MAP_WRITE,FALSE,argv[1]);if(!mapping)return 3;
     shared=static_cast<SlObserveShared*>(MapViewOfFile(mapping,FILE_MAP_READ|FILE_MAP_WRITE,0,0,sizeof(SlObserveShared)));
     ready=OpenEventW(EVENT_MODIFY_STATE,FALSE,(std::wstring(argv[1])+L"-ready").c_str());

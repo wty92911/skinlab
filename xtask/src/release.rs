@@ -85,13 +85,11 @@ pub fn notes(root: &Path, args: &[String]) -> Result<()> {
     let log = git(root, &["log", "--no-merges", "--invert-grep", "--grep=^Release v", "--format=- %s (%h)", &range])?;
 
     let builds = SupportedBuilds::embedded();
+    let current = builds.latest().context("no current reference game build")?;
     let catalog = Catalog::embedded();
     let mut out = String::new();
     out.push_str("## 适配\n\n");
-    out.push_str(&format!(
-        "- 游戏版本：{}\n",
-        builds.builds.iter().map(|b| format!("`{}`（{}）", b.version, b.region)).collect::<Vec<_>>().join("、")
-    ));
+    out.push_str(&format!("- 当前已验证游戏版本：`{}`（{}）\n", current.version, current.region));
     out.push_str(&format!(
         "- 皮肤目录：{} · {} 位英雄 · {} 款\n\n",
         catalog.version,
@@ -99,6 +97,7 @@ pub fn notes(root: &Path, args: &[String]) -> Result<()> {
         catalog.skin_count()
     ));
     out.push_str("每次连接解析当前游戏代码与英雄数据，兼容更新可直接接入，无需等待版本白名单更新。\n\n");
+    out.push_str("- 系统要求：Windows 11 x64。根据此前测试，Windows 10 无法使用。\n\n");
     out.push_str(&format!("## 变更{}\n\n", previous.as_ref().map(|p| format!("（自 {p}）")).unwrap_or_default()));
     out.push_str(if log.is_empty() { "- 无代码变更" } else { &log });
     out.push_str("\n\n## 安装\n\n");
