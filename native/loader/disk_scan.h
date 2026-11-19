@@ -72,7 +72,7 @@ struct DiskImage {
     }
 };
 bool required_disk_rule(const std::string& name) {
-    const char* names[]={"local_player","character_data_stack","skin_id_encoding","skin_id_decoding_with_subtract","character_data_stack_update",
+    const char* names[]={"local_player","character_data_stack","skin_id_encoding","skin_id_decoding_with_subtract","skin_id_decoding_with_final_xor","character_data_stack_update",
                          "material_registry_getter","swap_chain"};
     return std::any_of(std::begin(names),std::end(names),[&](const char* value){return name==value;});
 }
@@ -86,7 +86,7 @@ int scan_disk_image(const wchar_t* path) {
         results=skinlab::profile::analyze(image.snapshot,skinlab::profile::recovered_rules(),DiskImage::reread,&image);
     }catch(const std::exception& e){error=e.what();}
     size_t unique=0;
-    for(const auto& r:results)if(required_disk_rule(r.name)&&r.name!="skin_id_encoding"&&r.name!="skin_id_decoding_with_subtract"&&r.has_candidate)++unique;
+    for(const auto& r:results)if(required_disk_rule(r.name)&&r.name!="skin_id_encoding"&&r.name!="skin_id_decoding_with_subtract"&&r.name!="skin_id_decoding_with_final_xor"&&r.has_candidate)++unique;
     const auto* codec=skinlab::profile::skin_codec(results);
     std::cout<<"{\"schema_version\":1,\"scope\":\"disk\",\"disk_sha256\":"<<std::quoted(digest)
         <<",\"required_rules_unique\":"<<(unique==5&&codec?"true":"false")
@@ -101,7 +101,7 @@ int scan_disk_image(const wchar_t* path) {
         if(r.has_candidate)std::cout<<"{\"rva\":"<<r.candidate.rva<<",\"field_offset\":"<<r.candidate.field_offset
             <<",\"xor_key\":"<<r.candidate.xor_key<<",\"rotate_first\":"<<unsigned(r.candidate.rotate_first)
             <<",\"rotate_second\":"<<unsigned(r.candidate.rotate_second)<<",\"codec_kind\":"<<r.candidate.codec_kind
-            <<",\"add_key\":"<<r.candidate.add_key<<",\"referenced_stack_offset\":"<<r.candidate.referenced_stack_offset<<'}';
+            <<",\"xor_key_second\":"<<r.candidate.xor_key_second<<",\"add_key\":"<<r.candidate.add_key<<",\"referenced_stack_offset\":"<<r.candidate.referenced_stack_offset<<'}';
         else std::cout<<"null";
         std::cout<<'}';
     }

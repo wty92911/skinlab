@@ -17,8 +17,10 @@ std::vector<Rule> recovered_rules() { return {
     make_rule("skin_id_encoding", "C1 CE ? 48 8D 55 ? 81 F6 ? ? ? ? 48 C7 45 ? 00 00 00 00 C1 CE ? 48 8D 8F ? ? ? ? 89 B7 ? ? ? ?", Recipe::SkinEncoding),
     // 16.22 runtime decoder, independently checked against the current stack.
     make_rule("skin_id_decoding_with_subtract", "8B 9F ? ? ? ? C1 CB ? 81 F3 ? ? ? ? 81 EB ? ? ? ? C1 CB ? 48 8D 8F ? ? ? ? E8 ? ? ? ? 48 8B CE 4C 8B 00 85 DB", Recipe::SkinDecodingWithSubtract),
+    // 16.23: the final rotate became an XOR; retain the independent stack reference.
+    make_rule("skin_id_decoding_with_final_xor", "8B 9F ? ? ? ? C1 CB ? 81 F3 ? ? ? ? 81 EB ? ? ? ? 81 F3 ? ? ? ? 48 8D 8F ? ? ? ? E8 ? ? ? ? 48 8B CE 4C 8B 00 85 DB", Recipe::SkinDecodingWithFinalXor),
     make_rule("swap_chain", "48 8D BB ? ? ? ? C6 83 ? ? ? ? ? 0F 84", Recipe::FirstWildcardU32),
-    make_rule("character_data_stack_push", "E8 ? ? ? ? 48 8D 8D ? ? 00 00 E8 ? ? ? ? 48 85 C0 74 ? 48 85 ED", Recipe::CallOrEntry),
+    make_rule("character_data_stack_push", "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8D 6C 24 F9 48 81 EC D0 00 00 00 48 8B DA 45 8B F9 48 8B 51 08 45 8B F0 48 8B F9 48 39 11 74 ? 48 81 C2 60 FF FF FF", Recipe::CallOrEntry),
     make_rule("character_data_stack_update", "88 54 24 10 55 53 56 57 41 54 41 55 41 56 41", Recipe::CallOrEntry),
     make_rule("material_registry_getter", "E8 ? ? ? ? 8B ? 34 45 33 C9", Recipe::CallOrEntry),
     make_rule("translate_string", "E8 ? ? ? ? 45 33 C0 48 8B D0 48 8B CB E8 ? ? ? ? 48", Recipe::CallOrEntry),

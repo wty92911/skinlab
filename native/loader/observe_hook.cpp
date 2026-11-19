@@ -42,7 +42,7 @@ void observe_player(SlObserveShared& out,const skinlab::profile::Snapshot& image
     if(!local_copy(player+skin_rule->field_offset,&out.encoded_skin,4)||!local_copy(stack+skinlab::league::kStackSkinOffset,&out.stack_skin,4)
        ||!local_copy(stack+skinlab::league::kStackModelPointerOffset,&model,8)){out.player_read_error=GetLastError();return;}
     out.decoded_skin=skinlab::codec::decode(out.encoded_skin,skin_rule->codec_kind,skin_rule->rotate_first,
-        skin_rule->xor_key,skin_rule->rotate_second,skin_rule->add_key);
+        skin_rule->xor_key,skin_rule->rotate_second,skin_rule->add_key,skin_rule->xor_key_second);
     out.skin_fields_agree=out.decoded_skin==out.stack_skin;
     for(size_t i=0;i<sizeof(out.model_name)-1;++i) {
         if(!local_copy(model+i,&out.model_name[i],1)){out.player_read_error=GetLastError();return;}
@@ -100,7 +100,7 @@ DWORD WINAPI observe(void* parameter) {
                 for(size_t m=0;m<r.matches.size()&&m<2;++m)dest.match_rvas[m]=r.matches[m];
                 dest.rva=r.candidate.rva;dest.field_offset=r.candidate.field_offset;
                 dest.xor_key=r.candidate.xor_key;dest.rotate_first=r.candidate.rotate_first;dest.rotate_second=r.candidate.rotate_second;
-                dest.codec_kind=r.candidate.codec_kind;dest.add_key=r.candidate.add_key;dest.referenced_stack_offset=r.candidate.referenced_stack_offset;
+                dest.xor_key_second=r.candidate.xor_key_second;dest.codec_kind=r.candidate.codec_kind;dest.add_key=r.candidate.add_key;dest.referenced_stack_offset=r.candidate.referenced_stack_offset;
                 copy_text(dest.reason,r.reason);
             }
             observe_player(out,image,results);

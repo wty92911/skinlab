@@ -29,7 +29,7 @@ struct Check {std::string name;bool passed;};std::vector<Check> checks;
 SlObserveShared observation{};bool have_observation=false,game_mode=false,hook_removed=false;
 
 bool session_requested=false,code_probe_requested=false;
-bool fixture_codec_v2=false;
+uint32_t fixture_codec=0;
 std::string target_sha;uint32_t selected_pid=0;
 DWORD observer_integrity=0,target_integrity=0;
 bool debug_enabled(){const char* value=std::getenv("SKINLAB_NATIVE_DEBUG");return value&&!std::strcmp(value,"1");}
@@ -176,7 +176,7 @@ struct Host {
         shared->magic=SL_OBSERVE_MAGIC;shared->version=SL_OBSERVE_VERSION;shared->struct_size=sizeof(*shared);
         shared->host_pid=GetCurrentProcessId();shared->target_pid=pid;shared->nonce=nonce;shared->creation_time=creation;
         shared->request_session=session_requested?1:(code_probe_requested?2:0);
-        shared->fixture_codec=fixture_codec_v2?1:0;
+        shared->fixture_codec=fixture_codec;
         if(fixture_owner) {
             window=fixture_owner->window;shared->window=reinterpret_cast<uintptr_t>(window);
         } else if(!game_pid) {
@@ -422,6 +422,32 @@ void owned_reconnect_test() {
     std::memcpy(&observation,owner.shared,sizeof(observation));have_observation=true;
 }
 void owned_test() {
+    // Captured decoder instructions: parse fields/keys without invoking the game.
+    skinlab::profile::Snapshot decoder;decoder.image_size=0x4000;decoder.complete=true;
+    decoder.ranges={{0x1000,0x1000,true,true}};
+    decoder.regions={{0x1000,{0x8b,0x9f,0xec,0xb,0x0,0x0,0xc1,0xcb,0x1c,0x81,0xf3,0x9b,0x66,0x50,0x50,0x81,0xeb,0x6e,0x60,0xe1,0x57,0x81,0xf3,0x35,0xfa,0x37,0xd,0x48,0x8d,0x8f,0x48,0x36,0x0,0x0,0xe8,0x64,0xf4,0xf8,0xff,0x48,0x8b,0xce,0x4c,0x8b,0x0,0x85,0xdb,0x74,0x11,0x44,0x8b,0xcb}}};
+    decoder.expected_bytes=decoder.copied_bytes=decoder.regions[0].bytes.size();
+    auto reread=[](void* context,uint32_t rva,void* output,size_t size) {
+        const auto& bytes=static_cast<skinlab::profile::Snapshot*>(context)->regions[0].bytes;
+        if(rva<0x1000||rva-0x1000>bytes.size()||size>bytes.size()-(rva-0x1000))return false;
+        std::memcpy(output,bytes.data()+rva-0x1000,size);return true;
+    };
+    auto parsed=skinlab::profile::analyze(decoder,skinlab::profile::recovered_rules(),reread,&decoder);
+    skinlab::profile::Result stack;stack.name="character_data_stack";stack.has_candidate=true;stack.candidate.field_offset=0x3648;
+    for(auto& r:parsed)if(r.name==stack.name)r=stack;
+    const auto* selected=skinlab::profile::skin_codec(parsed);
+    check("codec_v3_recipe_fields_and_keys",selected&&selected->codec_kind==2&&selected->field_offset==0xbec
+        &&selected->referenced_stack_offset==0x3648&&selected->rotate_first==28&&selected->rotate_second==0
+        &&selected->xor_key==0x5050669b&&selected->add_key==0x57e1606e&&selected->xor_key_second==0x0d37fa35);
+    for(auto& r:parsed)if(r.name==stack.name)r.candidate.field_offset=0x3630;
+    check("codec_v3_rejects_stack_disagreement",!skinlab::profile::skin_codec(parsed));
+    for(auto& r:parsed)if(r.name==stack.name)r=stack;
+    for(auto& r:parsed)if(r.name=="skin_id_encoding"){r.has_candidate=true;r.state=skinlab::profile::State::RereadEqual;}
+    check("codec_v3_rejects_multiple_algorithms",!skinlab::profile::skin_codec(parsed));
+    const uint32_t skins_v3[]={0,1,999,UINT32_MAX},encoded_v3[]={0x835493c3,0x935493c3,0xb35493cd,0x31af900a};
+    for(size_t i=0;i<4;++i)check("codec_v3_independent_golden",
+        skinlab::codec::encode(skins_v3[i],2,28,0x5050669b,0,0x57e1606e,0x0d37fa35)==encoded_v3[i]
+        &&skinlab::codec::decode(encoded_v3[i],2,28,0x5050669b,0,0x57e1606e,0x0d37fa35)==skins_v3[i]);
     const uint32_t skins[]={0,1,999,UINT32_MAX},encoded[]={0x3e179126,0x3e1791a6,0x3e1584a6,0x38179126};
     for(size_t i=0;i<4;++i)check("codec_v2_independent_golden",
         skinlab::codec::encode(skins[i],1,25,0x5f0510b1,14,0x54cd83ae)==encoded[i]
@@ -495,7 +521,7 @@ void output(const std::string& error) {
             for(size_t m=0;m<std::min<uint32_t>(r.match_count,2);++m){if(m)std::cout<<',';std::cout<<r.match_rvas[m];}
             std::cout<<"],\"candidate\":";
             if(r.has_candidate)std::cout<<"{\"rva\":"<<r.rva<<",\"field_offset\":"<<r.field_offset<<",\"xor_key\":"<<r.xor_key<<",\"rotate_first\":"<<r.rotate_first<<",\"rotate_second\":"<<r.rotate_second
-                <<",\"codec_kind\":"<<r.codec_kind<<",\"add_key\":"<<r.add_key<<",\"referenced_stack_offset\":"<<r.referenced_stack_offset<<'}';
+                <<",\"codec_kind\":"<<r.codec_kind<<",\"xor_key_second\":"<<r.xor_key_second<<",\"add_key\":"<<r.add_key<<",\"referenced_stack_offset\":"<<r.referenced_stack_offset<<'}';
             else std::cout<<"null";
             std::cout<<'}';
         }
@@ -512,8 +538,8 @@ void output(const std::string& error) {
 int wmain(int argc,wchar_t** argv) {
     if(argc==3&&std::wstring(argv[1])==L"--scan-image")return scan_disk_image(argv[2]);
     DWORD pid=0;std::string expected;
-    fixture_codec_v2=argc==2&&std::wstring(argv[1])==L"--fixture-session-v2";
-    const bool fixture_session=argc==2&&(std::wstring(argv[1])==L"--fixture-session"||fixture_codec_v2);
+    fixture_codec=argc==2&&std::wstring(argv[1])==L"--fixture-session-v3"?2:argc==2&&std::wstring(argv[1])==L"--fixture-session-v2"?1:0;
+    const bool fixture_session=argc==2&&(std::wstring(argv[1])==L"--fixture-session"||fixture_codec);
     const bool fixture_reconnect=argc==2&&std::wstring(argv[1])==L"--fixture-reconnect-test";
     session_requested=fixture_session||fixture_reconnect;
     if((argc==5||(argc==6&&(std::wstring(argv[5])==L"--session"||std::wstring(argv[5])==L"--probe-code")))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {

@@ -9,7 +9,7 @@
 // This is an observation library, not a game binding or a function caller.
 // A caller must keep its module reference alive throughout collection/reread.
 namespace skinlab { namespace profile {
-enum class Recipe { RipRelative, CallOrEntry, FirstWildcardU32, SkinEncoding, SkinDecodingWithSubtract };
+enum class Recipe { RipRelative, CallOrEntry, FirstWildcardU32, SkinEncoding, SkinDecodingWithSubtract, SkinDecodingWithFinalXor };
 enum class State { Missing, Ambiguous, Incomplete, Invalid, Changed, ReadFailed,
                    SnapshotOnly, RereadEqual };
 struct Rule {
@@ -41,6 +41,7 @@ struct Snapshot {
 struct Candidate {
     uint32_t rva=0, field_offset=0, xor_key=0;
     uint32_t codec_kind=0,add_key=0,referenced_stack_offset=0;
+    uint32_t xor_key_second=0;
     uint8_t rotate_first=0, rotate_second=0;
 };
 struct Result {

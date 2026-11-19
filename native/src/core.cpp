@@ -74,7 +74,7 @@ struct SlRuntime {
     }
     uint32_t decoded(const Snapshot& value) const noexcept {
         const auto& layout = config.layout;
-        return skinlab::codec::decode(value.encoded,layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key);
+        return skinlab::codec::decode(value.encoded,layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key,layout.xor_key_second);
     }
     bool refresh() const noexcept {
         auto* stack = static_cast<unsigned char*>(config.object_data) + config.layout.character_stack_offset;
@@ -160,7 +160,7 @@ SlStatus SL_CALL apply(SlRuntime* runtime, int32_t skin_id) noexcept {
     if (!was_active) runtime->original = before;
     runtime->active = true;
     const auto& layout = runtime->config.layout;
-    const Snapshot desired{skinlab::codec::encode(static_cast<uint32_t>(skin_id),layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key),static_cast<uint32_t>(skin_id)};
+    const Snapshot desired{skinlab::codec::encode(static_cast<uint32_t>(skin_id),layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key,layout.xor_key_second),static_cast<uint32_t>(skin_id)};
     runtime->write(desired);
     const bool refreshed = runtime->refresh();
     if (runtime->check_target() != SL_OK) {

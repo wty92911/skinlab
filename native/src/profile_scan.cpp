@@ -71,6 +71,14 @@ bool resolve(const Snapshot& s,const Rule& rule,uint32_t at,const uint8_t* bytes
             error="Invalid skin decoding immediates";return false;
         }
         break;
+    case Recipe::SkinDecodingWithFinalXor:
+        out.codec_kind=2;out.field_offset=u32(bytes+2);out.rotate_first=bytes[8];
+        out.xor_key=u32(bytes+11);out.add_key=u32(bytes+17);out.xor_key_second=u32(bytes+23);
+        out.referenced_stack_offset=u32(bytes+30);
+        if(out.rotate_first>=32||!out.referenced_stack_offset||out.referenced_stack_offset>max_field) {
+            error="Invalid skin decoding immediates";return false;
+        }
+        break;
     }
     if(out.field_offset==0||out.field_offset>max_field) {
         error="Field offset fails the observer's conservative 1..1MiB admission";return false;
@@ -112,6 +120,7 @@ void validate(const Snapshot& s,const std::vector<Rule>& rules,uint32_t budget) 
             required=r.first_wildcard+4;break;
         case Recipe::SkinEncoding:required=0x25;break;
         case Recipe::SkinDecodingWithSubtract:required=31;break;
+        case Recipe::SkinDecodingWithFinalXor:required=34;break;
         default:throw std::invalid_argument("Unknown recipe");
         }
         if(r.bytes.size()<required)throw std::invalid_argument("Recipe reads beyond pattern");
@@ -153,7 +162,7 @@ const char* state_name(State s) {
 }
 const Candidate* skin_codec(const std::vector<Result>& results) {
     const Candidate* found=nullptr;
-    for(const auto& r:results)if(r.name=="skin_id_encoding"||r.name=="skin_id_decoding_with_subtract") {
+    for(const auto& r:results)if(r.name=="skin_id_encoding"||r.name=="skin_id_decoding_with_subtract"||r.name=="skin_id_decoding_with_final_xor") {
         if(r.state==State::Missing)continue;
         if(!r.has_candidate||found)return nullptr;
         found=&r.candidate;

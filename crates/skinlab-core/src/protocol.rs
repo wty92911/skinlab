@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Line protocol spoken by `skinlab-observe-host.exe --session`: one command
 //! per stdin line, one JSON reply per stdout line.
+//! Native components use shared-memory v10 and core ABI v3 and must be rebuilt together.
 
 use serde::{Deserialize, Serialize};
 

@@ -218,8 +218,6 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         std::strcpy(work->shared->model_name,"Fixture");
     } else {
         auto& out=*work->shared;
-        if(out.player_read_status!=1||!out.player_stable||!out.skin_fields_agree)
-            throw std::runtime_error("Cannot read consistent current player skin data");
         auto find=[&](const char* name)->skinlab::profile::Candidate {
             for(const auto& r:results)if(r.name==name&&r.has_candidate)return r.candidate;
             throw std::runtime_error("Required session recipe is not unique/reread-equal");
@@ -230,9 +228,11 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
             throw std::runtime_error("Required session recipe codec is not unique/stack-consistent");
         const auto skin=*codec;
         const auto update=find("character_data_stack_update"),getter=find("material_registry_getter"),swap=find("swap_chain");
+        if(out.player_read_status!=1||!out.player_stable||!out.skin_fields_agree)
+            throw std::runtime_error("Cannot read consistent current player skin data");
         s->probe_sites=session_probe_sites(image,results);
         // Push/update are resolved by the shared recipes; the destructor is
-        // resolved from push's direct call. 16.21 and 16.22 retain the same
+        // resolved from push's direct call. 16.21 through 16.23 retain the same
         // 18-argument push ABI and layer layout. Relocated call operands must
         // not suppress the form controls after an otherwise compatible patch.
         if(!std::strcmp(out.model_name,"Lux")
@@ -243,7 +243,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
         s->form_skins.champion=s->model;
-        s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second,skin.codec_kind,skin.add_key};
+        s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second,skin.codec_kind,skin.add_key,skin.xor_key_second};
         auto& cfg=s->config;cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LEAGUE_EXPERIMENT;
         cfg.layout=s->layout;cfg.object_data=reinterpret_cast<void*>(s->player);cfg.object_size=s->layout.character_stack_offset+skinlab::league::kMinimumStackSkinExtent;
         cfg.context=s;cfg.expected_generation=s->player;cfg.generation=GameSession::generation;cfg.skin_allowed=GameSession::catalog;cfg.refresh=GameSession::refresh;

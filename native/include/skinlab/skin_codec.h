@@ -11,12 +11,15 @@ inline uint32_t left(uint32_t value,uint32_t count) {
 }
 // kind 0 is the 16.21 encoder. kind 1 inverts the 16.22 decoder:
 // ROR(encoded,a), XOR key, SUB add_key, ROR b (all arithmetic modulo 2^32).
-inline uint32_t encode(uint32_t skin,uint32_t kind,uint32_t a,uint32_t key,uint32_t b,uint32_t add_key) {
+// kind 2 is 16.23: ROR(encoded,a), XOR key, SUB add_key, XOR second_key.
+inline uint32_t encode(uint32_t skin,uint32_t kind,uint32_t a,uint32_t key,uint32_t b,uint32_t add_key,uint32_t second_key=0) {
+    if(kind==2)return left(((skin^second_key)+add_key)^key,a);
     return kind==1?left((left(skin,b)+add_key)^key,a):right(right(skin,a)^key,b);
 }
-inline uint32_t decode(uint32_t value,uint32_t kind,uint32_t a,uint32_t key,uint32_t b,uint32_t add_key) {
+inline uint32_t decode(uint32_t value,uint32_t kind,uint32_t a,uint32_t key,uint32_t b,uint32_t add_key,uint32_t second_key=0) {
+    if(kind==2)return ((right(value,a)^key)-add_key)^second_key;
     return kind==1?right((right(value,a)^key)-add_key,b):left(left(value,b)^key,a);
 }
-inline bool valid(uint32_t kind,uint32_t a,uint32_t b) {return kind<=1&&a<32&&b<32;}
+inline bool valid(uint32_t kind,uint32_t a,uint32_t b) {return kind<=2&&a<32&&b<32&&(kind!=2||b==0);}
 } }
 #endif

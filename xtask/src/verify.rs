@@ -102,21 +102,28 @@ pub fn run(root: &Path) -> Result<()> {
     );
     session.close()?;
 
-    println!("codec v2 apply and restoration against fixture");
-    let mut codec_session = skinlab_session::host::HostSession::spawn(&host, &["--fixture-session-v2".into()], None)?;
-    let before = codec_session.last().context("codec fixture startup")?.clone();
-    ensure!(before.current_skin == 0 && before.current_encoded_skin == 0x3e17_9126, "codec fixture original disagrees");
-    let applied = codec_session.command(Command::Apply(1))?;
-    ensure!(
-        applied.current_skin == 1 && applied.current_encoded_skin == 0x3e17_91a6,
-        "codec v2 encoding disagrees with golden"
-    );
-    let restored = codec_session.command(Command::Restore)?;
-    ensure!(
-        restored.current_skin == 0 && restored.current_encoded_skin == before.current_encoded_skin,
-        "codec v2 failed to restore bytes"
-    );
-    codec_session.close()?;
+    for (flag, original, selected) in
+        [("--fixture-session-v2", 0x3e17_9126, 0x3e17_91a6), ("--fixture-session-v3", 0x8354_93c3, 0x9354_93c3)]
+    {
+        println!("{flag} apply and restoration against fixture");
+        let mut codec_session = skinlab_session::host::HostSession::spawn(&host, &[flag.into()], None)?;
+        let before = codec_session.last().context("codec fixture startup")?.clone();
+        ensure!(
+            before.current_skin == 0 && before.current_encoded_skin == original,
+            "codec fixture original disagrees"
+        );
+        let applied = codec_session.command(Command::Apply(1))?;
+        ensure!(
+            applied.current_skin == 1 && applied.current_encoded_skin == selected,
+            "codec encoding disagrees with golden"
+        );
+        let restored = codec_session.command(Command::Restore)?;
+        ensure!(
+            restored.current_skin == 0 && restored.current_encoded_skin == original,
+            "codec failed to restore bytes"
+        );
+        codec_session.close()?;
+    }
 
     println!("controller against fixture");
     let mut catalog = Catalog::embedded();

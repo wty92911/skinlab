@@ -30,7 +30,8 @@ SessionProbeSites session_probe_sites(const skinlab::profile::Snapshot& image,
         if(r.name=="swap_chain"&&!r.matches.empty())sites.rvas[12]=r.matches[0]>=64?r.matches[0]-64:r.matches[0];
         if(r.name=="character_data_stack_push") {
             sites.rvas[0]=r.candidate.rva;
-            if(!r.matches.empty())sites.rvas[2]=r.matches[0]>=1024?r.matches[0]-1024:r.matches[0];
+            if(!r.matches.empty()&&r.matches[0]!=r.candidate.rva)
+                sites.rvas[2]=r.matches[0]>=1024?r.matches[0]-1024:r.matches[0];
         }
     }
     // This code-coordinate is independently observed in 16.21's push body.

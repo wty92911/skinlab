@@ -40,7 +40,7 @@ Elementalist Lux offers ten elemental forms, switched manually under the champio
 
 Get `SkinLab_*_x64-setup.exe` from [Releases](https://github.com/wty92911/skinlab/releases). Each release highlights the currently verified game build, catalog version and changes, with `SHA256SUMS.txt`. The installer is unsigned and needs administrator rights; some security software may flag it because it loads a component into the game process.
 
-Currently verified game build: **16.22.836.1077 (CN)**. Compatible small updates can connect through runtime code and champion data resolution without a version allowlist update.
+Currently verified game build: **16.23.839.6851 (CN)**. Compatible small updates can connect through runtime code and champion data resolution without a version allowlist update.
 
 Requires **Windows 11 x64**. **Windows 10 does not work**, based on previous testing.
 

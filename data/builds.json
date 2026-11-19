@@ -15,6 +15,11 @@
       "version": "16.22.836.1077",
       "region": "cn",
       "sha256": "0a3db62e27bb20e88b9fa1111edc5bd9f80f6d1969b70d7fa3739b9ce3c0691d"
+    },
+    {
+      "version": "16.23.839.6851",
+      "region": "cn",
+      "sha256": "dad988446ebec0b76169bdff58056af2664d823ff63eea87df0db0ce01f743fa"
     }
   ]
 }

@@ -5,7 +5,7 @@
 #include <string>
 
 constexpr uint64_t SL_OBSERVE_MAGIC=0x534c4f4253303031ULL;
-constexpr uint32_t SL_OBSERVE_VERSION=9,SL_OBSERVE_RULES=17,SL_STACK_CONTEXTS=6,SL_CODE_PROBES=13;
+constexpr uint32_t SL_OBSERVE_VERSION=10,SL_OBSERVE_RULES=18,SL_STACK_CONTEXTS=6,SL_CODE_PROBES=13;
 constexpr wchar_t SL_OBSERVE_MESSAGE[]=L"SkinLab.NativeSession.74576016-9FBC-486A-98EB-C98B41960012";
 enum : LONG {SL_O_ARMED=1,SL_O_RUNNING,SL_O_COMPLETE,SL_O_FAILED};
 enum : LONG {SL_START_MESSAGE,SL_START_COLLECT,SL_START_HASH,SL_START_SCAN,SL_START_BIND,SL_START_FRAME,SL_START_READY};
@@ -15,6 +15,7 @@ struct SlObserveResult {
     uint32_t match_rvas[2];
     uint32_t rva,field_offset,xor_key,rotate_first,rotate_second;
     uint32_t codec_kind,add_key,referenced_stack_offset;
+    uint32_t xor_key_second;
     char reason[192];
 };
 // Explicit read-only adaptation probe, collected on the session's frame thread.

@@ -134,6 +134,14 @@ mod tests {
     }
 
     #[test]
+    fn missing_codec_stops_instead_of_waiting_for_hero() {
+        let failure =
+            classify("Target observation failed: Required session recipe codec is not unique/stack-consistent", 0);
+        assert_eq!(failure.kind, HostFailureKind::RecipeFailed);
+        assert!(!failure.kind.retryable());
+    }
+
+    #[test]
     fn reconnect_failures_keep_ownership_and_recovery_distinct() {
         let active = classify("Target observation failed: A session is already active in this module", 0);
         assert_eq!(active.kind, HostFailureKind::AlreadyActive);

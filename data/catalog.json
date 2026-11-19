@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
-  "version": "16.21",
+  "version": "16.23",
   "locale": "zh_CN",
   "source": "https://game.gtimg.cn/images/lol/act/img/js/",
-  "source_file_time": "2026-10-26 17:41:03",
-  "updated_at_utc": "unix:1793886134",
+  "source_file_time": "2026-11-18 10:46:18",
+  "updated_at_utc": "unix:1795094035",
   "champions": [
     {
       "id": "Aatrox",
@@ -906,7 +906,7 @@
             },
             {
               "skin_id": 96,
-              "name": "璞真",
+              "name": "白魔女",
               "colors": [
                 "#DDE8F3",
                 "#DBB995"
@@ -1156,41 +1156,65 @@
             {
               "skin_id": 98,
               "name": "星光之途",
+              "colors": [
+                "#D33528"
+              ],
               "art": "tencent:chromas/103/103098.png"
             },
             {
               "skin_id": 99,
               "name": "萌动之心",
+              "colors": [
+                "#2756CE"
+              ],
               "art": "tencent:chromas/103/103099.png"
             },
             {
               "skin_id": 100,
               "name": "治愈之声",
+              "colors": [
+                "#2DA130"
+              ],
               "art": "tencent:chromas/103/103100.png"
             },
             {
               "skin_id": 101,
               "name": "前卫之范",
+              "colors": [
+                "#73BFBE"
+              ],
               "art": "tencent:chromas/103/103101.png"
             },
             {
               "skin_id": 102,
               "name": "飒爽之秀",
+              "colors": [
+                "#FFEE59"
+              ],
               "art": "tencent:chromas/103/103102.png"
             },
             {
               "skin_id": 103,
               "name": "灵感之源",
+              "colors": [
+                "#9C68D7"
+              ],
               "art": "tencent:chromas/103/103103.png"
             },
             {
               "skin_id": 104,
               "name": "白金巨星",
+              "colors": [
+                "#ECF9F8"
+              ],
               "art": "tencent:chromas/103/103104.png"
             },
             {
               "skin_id": 105,
               "name": "霸气之美",
+              "colors": [
+                "#27211C"
+              ],
               "art": "tencent:chromas/103/103105.png"
             }
           ],
@@ -2036,7 +2060,7 @@
           "name": "K/DA 生来惹火 焰火杀缭乱 阿卡丽",
           "art": "tencent:skinloading/8c147c55-6321-4eb1-851d-0e6fd9236238.jpg",
           "requires_special_handling": null,
-          "rarity": "common"
+          "rarity": "Mythic"
         },
         {
           "skin_id": 103,
@@ -5133,7 +5157,7 @@
             },
             {
               "skin_id": 93,
-              "name": "璞真",
+              "name": "白魔女",
               "colors": [
                 "#DDE8F3",
                 "#DBB995"
@@ -14320,31 +14344,49 @@
             {
               "skin_id": 67,
               "name": "霸气之美",
+              "colors": [
+                "#27211C"
+              ],
               "art": "tencent:chromas/28/28067.png"
             },
             {
               "skin_id": 68,
               "name": "星光之途",
+              "colors": [
+                "#D33528"
+              ],
               "art": "tencent:chromas/28/28068.png"
             },
             {
               "skin_id": 69,
               "name": "飒爽之秀",
+              "colors": [
+                "#FFEE59"
+              ],
               "art": "tencent:chromas/28/28069.png"
             },
             {
               "skin_id": 70,
               "name": "萌动之心",
+              "colors": [
+                "#2756CE"
+              ],
               "art": "tencent:chromas/28/28070.png"
             },
             {
               "skin_id": 71,
               "name": "优雅之仪",
+              "colors": [
+                "#54209B"
+              ],
               "art": "tencent:chromas/28/28071.png"
             },
             {
               "skin_id": 72,
               "name": "白金巨星",
+              "colors": [
+                "#ECF9F8"
+              ],
               "art": "tencent:chromas/28/28072.png"
             }
           ],
@@ -14356,7 +14398,7 @@
           "name": "K/DA 金曲制作人 伊芙琳",
           "art": "tencent:skinloading/93f19821-7ad6-4ac2-b6c7-237cdfd153c3.jpg",
           "requires_special_handling": null,
-          "rarity": "Legend"
+          "rarity": "Mythic"
         }
       ]
     },
@@ -18670,6 +18712,15 @@
                 "#ECF9F8"
               ],
               "art": "tencent:chromas/79/79047.png"
+            },
+            {
+              "skin_id": 49,
+              "name": "生来惹火",
+              "colors": [
+                "#851034",
+                "#251B33"
+              ],
+              "art": "tencent:chromas/79/79049.png"
             }
           ],
           "requires_special_handling": null,
@@ -22298,7 +22349,7 @@
             },
             {
               "skin_id": 73,
-              "name": "饕餮",
+              "name": "白魔女",
               "colors": [
                 "#ECF9F8"
               ],
@@ -25520,41 +25571,65 @@
             {
               "skin_id": 84,
               "name": "星光之途",
+              "colors": [
+                "#D33528"
+              ],
               "art": "tencent:chromas/145/145084.png"
             },
             {
               "skin_id": 85,
               "name": "优雅之仪",
+              "colors": [
+                "#54209B"
+              ],
               "art": "tencent:chromas/145/145085.png"
             },
             {
               "skin_id": 86,
               "name": "萌动之心",
+              "colors": [
+                "#2756CE"
+              ],
               "art": "tencent:chromas/145/145086.png"
             },
             {
               "skin_id": 87,
               "name": "治愈之声",
+              "colors": [
+                "#2DA130"
+              ],
               "art": "tencent:chromas/145/145087.png"
             },
             {
               "skin_id": 88,
               "name": "自信之光",
+              "colors": [
+                "#DF9117"
+              ],
               "art": "tencent:chromas/145/145088.png"
             },
             {
               "skin_id": 89,
               "name": "前卫之范",
+              "colors": [
+                "#73BFBE"
+              ],
               "art": "tencent:chromas/145/145089.png"
             },
             {
               "skin_id": 90,
               "name": "白金巨星",
+              "colors": [
+                "#ECF9F8"
+              ],
               "art": "tencent:chromas/145/145090.png"
             },
             {
               "skin_id": 91,
               "name": "霸气之美",
+              "colors": [
+                "#27211C"
+              ],
               "art": "tencent:chromas/145/145091.png"
             }
           ],
@@ -39271,7 +39346,7 @@
             },
             {
               "skin_id": 83,
-              "name": "魔女 莫甘娜 璞真",
+              "name": "白魔女",
               "colors": [
                 "#DDE8F3",
                 "#DBB995"
@@ -41799,6 +41874,79 @@
           "skin_id": 49,
           "name": "小蜜蜂 妮蔻",
           "art": "tencent:skinloading/8c397c58-4090-4bdb-ab1b-f45343f85442.jpg",
+          "requires_special_handling": null,
+          "rarity": "common"
+        },
+        {
+          "skin_id": 50,
+          "name": "咖啡甜心 妮蔻",
+          "art": "tencent:skinloading/2cd838bd-ab39-473a-b5e3-94211c3e5077.jpg",
+          "chromas": [
+            {
+              "skin_id": 51,
+              "name": "草莓戚风",
+              "colors": [
+                "#D33528"
+              ],
+              "art": "tencent:chromas/518/518051.png"
+            },
+            {
+              "skin_id": 52,
+              "name": "蓝莓朱古力",
+              "colors": [
+                "#6ABBEE"
+              ],
+              "art": "tencent:chromas/518/518052.png"
+            },
+            {
+              "skin_id": 53,
+              "name": "焦糖布丁",
+              "colors": [
+                "#27211C"
+              ],
+              "art": "tencent:chromas/518/518053.png"
+            },
+            {
+              "skin_id": 54,
+              "name": "核桃巴菲",
+              "colors": [
+                "#ECF9F8"
+              ],
+              "art": "tencent:chromas/518/518054.png"
+            },
+            {
+              "skin_id": 55,
+              "name": "酒醉樱桃",
+              "colors": [
+                "#E58BA5"
+              ],
+              "art": "tencent:chromas/518/518055.png"
+            },
+            {
+              "skin_id": 56,
+              "name": "吉子芝士",
+              "colors": [
+                "#FFEE59"
+              ],
+              "art": "tencent:chromas/518/518056.png"
+            },
+            {
+              "skin_id": 57,
+              "name": "软心布朗尼",
+              "colors": [
+                "#9F4A25"
+              ],
+              "art": "tencent:chromas/518/518057.png"
+            },
+            {
+              "skin_id": 58,
+              "name": "姜汁香茅",
+              "colors": [
+                "#B6E084"
+              ],
+              "art": "tencent:chromas/518/518058.png"
+            }
+          ],
           "requires_special_handling": null,
           "rarity": "common"
         }
@@ -56903,6 +57051,13 @@
           ],
           "requires_special_handling": null,
           "rarity": "Prestige"
+        },
+        {
+          "skin_id": 77,
+          "name": "DJ 娑娜 终极天后",
+          "art": "tencent:skinloading/704236d6-d529-432e-ba95-f7bdcc8784ab.jpg",
+          "requires_special_handling": null,
+          "rarity": "Mythic"
         }
       ]
     },
@@ -75468,6 +75623,79 @@
           ],
           "requires_special_handling": null,
           "rarity": "Prestige"
+        },
+        {
+          "skin_id": 45,
+          "name": "咖啡甜心 佐伊",
+          "art": "tencent:skinloading/87f338df-e471-4f95-811e-b570aef49fb5.jpg",
+          "chromas": [
+            {
+              "skin_id": 46,
+              "name": "草莓戚风",
+              "colors": [
+                "#D33528"
+              ],
+              "art": "tencent:chromas/142/142046.png"
+            },
+            {
+              "skin_id": 47,
+              "name": "吉子芝士",
+              "colors": [
+                "#FFEE59"
+              ],
+              "art": "tencent:chromas/142/142047.png"
+            },
+            {
+              "skin_id": 48,
+              "name": "抹茶巧克力",
+              "colors": [
+                "#2DA130"
+              ],
+              "art": "tencent:chromas/142/142048.png"
+            },
+            {
+              "skin_id": 49,
+              "name": "香草忌廉",
+              "colors": [
+                "#9C68D7"
+              ],
+              "art": "tencent:chromas/142/142049.png"
+            },
+            {
+              "skin_id": 50,
+              "name": "海盐泡芙",
+              "colors": [
+                "#2756CE"
+              ],
+              "art": "tencent:chromas/142/142050.png"
+            },
+            {
+              "skin_id": 51,
+              "name": "酒醉樱桃",
+              "colors": [
+                "#E58BA5"
+              ],
+              "art": "tencent:chromas/142/142051.png"
+            },
+            {
+              "skin_id": 52,
+              "name": "核桃巴菲",
+              "colors": [
+                "#ECF9F8"
+              ],
+              "art": "tencent:chromas/142/142052.png"
+            },
+            {
+              "skin_id": 53,
+              "name": "焦糖布丁",
+              "colors": [
+                "#27211C"
+              ],
+              "art": "tencent:chromas/142/142053.png"
+            }
+          ],
+          "requires_special_handling": null,
+          "rarity": "common"
         }
       ]
     },
