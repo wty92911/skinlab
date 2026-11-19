@@ -9,6 +9,7 @@ pub mod game;
 pub mod host;
 pub mod live;
 pub mod mock;
+mod skin_memory;
 
 pub use backend::{Backend, ConnectError, Session, SessionError};
 pub use bundle::NativeBundle;

@@ -31,6 +31,7 @@
 - Chromas: cards show color dots and a count. Selecting the skin unfolds a swatch row under the champion card; hover to preview the model (when the website has one), click to apply. Chromas have their own skin numbers and use the same update path.
 - Ultimate forms: adapted ultimate skins get a form switcher under the champion card once applied.
 - Resolves the running game's code features and champion data when connecting. Compatible small updates can connect without waiting for a version allowlist update.
+- Remembers the last successfully selected skin or chroma for each champion and applies it in the next match. Closing the app restores this match's original skin while keeping the choice; explicitly restoring clears that champion's saved choice.
 - Restores the original skin and stops the session when the window closes. After a clean stop, reopening reconnects to the same match. <kbd>Insert</kbd> shows/hides the window.
 - Runs as a single instance. Launching it again shows the existing window and a notice instead of starting another session.
 

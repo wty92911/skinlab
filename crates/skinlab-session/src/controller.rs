@@ -7,9 +7,11 @@
 //! finish on the most recent choice.
 
 use crate::backend::{Backend, ConnectError, Session};
+use crate::skin_memory::SkinMemory;
 use serde::Serialize;
 use skinlab_core::live::ActiveHero;
 use skinlab_core::{Catalog, Champion, Command, HostFailureKind, HostReply, Rarity, art, form_set};
+use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -136,6 +138,7 @@ pub struct Controller {
     paused: bool,
     /// Form aliases the current session announced.
     available_forms: Vec<String>,
+    skin_memory: Option<SkinMemory>,
     snapshot: Snapshot,
     shared: Arc<Mutex<Snapshot>>,
     notify: Notify,
@@ -207,6 +210,7 @@ impl Controller {
             restore_requested: false,
             paused: false,
             available_forms: Vec::new(),
+            skin_memory: None,
             shared: Arc::new(Mutex::new(snapshot.clone())),
             snapshot,
             notify: Box::new(|_| {}),
@@ -215,6 +219,12 @@ impl Controller {
 
     pub fn on_change(mut self, notify: impl FnMut(&Snapshot) + Send + 'static) -> Self {
         self.notify = Box::new(notify);
+        self
+    }
+
+    /// Remember successful selections across games and app restarts.
+    pub fn with_skin_memory(mut self, path: impl AsRef<Path>) -> Self {
+        self.skin_memory = Some(SkinMemory::load(path.as_ref()));
         self
     }
 
@@ -240,6 +250,7 @@ impl Controller {
 
     fn run(mut self, requests: Receiver<Request>) {
         self.tick();
+        self.drive();
         let mut next_tick = Instant::now() + self.timing.tick;
         loop {
             let wait = next_tick.saturating_duration_since(Instant::now());
@@ -385,6 +396,7 @@ impl Controller {
                     self.snapshot.current_skin = Some(reply.current_skin);
                     self.snapshot.original_skin = Some(reply.current_skin);
                     self.show_forms(&reply);
+                    self.recall_skin();
                 }
                 let message = if self.snapshot.hero.as_ref().is_some_and(|h| !h.in_catalog) {
                     "目录中没有该英雄，请更新 SkinLab"
@@ -454,12 +466,46 @@ impl Controller {
         self.restore_requested = true;
     }
 
+    fn recall_skin(&mut self) {
+        let saved = self.snapshot.hero.as_ref().and_then(|hero| self.skin_memory.as_ref()?.get(&hero.model));
+        let Some(saved) = saved else { return };
+        let known = self.snapshot.skins.iter().any(|s| s.id == saved || s.chromas.iter().any(|c| c.id == saved));
+        if known {
+            self.snapshot.desired_skin = (Some(saved) != self.snapshot.current_skin).then_some(saved);
+        } else {
+            // Catalog changes must never send a stale skin ID to the host.
+            self.save_skin_choice(None);
+        }
+    }
+
+    fn save_skin_choice(&mut self, skin: Option<u32>) -> bool {
+        if let (Some(memory), Some(hero)) = (&mut self.skin_memory, &self.snapshot.hero)
+            && let Err(error) = memory.set(&hero.model, skin)
+        {
+            tracing::warn!(%error, champion = hero.model, "could not save skin choice");
+            return false;
+        }
+        true
+    }
+
     /// Sends at most one engine command toward the desired state. Public for tests.
     pub fn drive(&mut self) {
         if self.session.is_none() {
             self.restore_requested = false;
             self.snapshot.desired_form = None;
             return;
+        }
+        if !self.restore_requested
+            && let Some(wanted) = self.snapshot.desired_skin
+            && Some(wanted) == self.snapshot.current_skin
+        {
+            let saved = self.save_skin_choice(Some(wanted));
+            self.snapshot.desired_skin = None;
+            if saved {
+                self.publish();
+            } else {
+                self.set(Phase::Ready, "皮肤已生效，但无法保存上次选择");
+            }
         }
         let command = if std::mem::take(&mut self.restore_requested) {
             self.snapshot.desired_skin = None;
@@ -478,13 +524,24 @@ impl Controller {
         let session = self.session.as_mut().expect("checked above");
         match session.command(command) {
             Ok(reply) => {
+                let saved = match command {
+                    Command::Apply(wanted) if wanted == reply.current_skin => self.save_skin_choice(Some(wanted)),
+                    Command::Restore => self.save_skin_choice(None),
+                    _ => true,
+                };
                 self.snapshot.current_skin = Some(reply.current_skin);
                 self.show_forms(&reply);
                 self.snapshot.desired_form = None;
                 if self.snapshot.desired_skin == Some(reply.current_skin) || command == Command::Restore {
                     self.snapshot.desired_skin = None;
                 }
-                let done = if command == Command::Restore { "已恢复原皮" } else { "已生效" };
+                let done = if !saved {
+                    "皮肤已生效，但无法保存上次选择"
+                } else if command == Command::Restore {
+                    "已恢复原皮"
+                } else {
+                    "已生效"
+                };
                 self.set(Phase::Ready, done);
             }
             Err(error) => {
@@ -711,6 +768,98 @@ mod tests {
         c.request_restore();
         c.drive();
         assert_eq!(c.snapshot().current_skin, Some(0));
+    }
+
+    #[test]
+    fn remembered_chromas_survive_restart_per_champion_without_changing_original() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("last-skins.json");
+        let lux = MockGame::shared(Some("Lux"));
+        let mut c = controller(&lux).with_skin_memory(&path);
+        c.tick();
+        let chroma = c.snapshot().skins.iter().find(|s| s.id == 29).unwrap().chromas[0].id;
+        c.select(chroma);
+        c.drive();
+        c.shutdown();
+        assert_eq!(lux.lock().unwrap().current, 0);
+
+        let ahri = MockGame::shared(Some("Ahri"));
+        let mut c = controller(&ahri).with_skin_memory(&path);
+        c.tick();
+        assert_eq!(c.snapshot().desired_skin, None);
+        c.select(1);
+        c.drive();
+        c.shutdown();
+
+        let lux = MockGame::shared(Some("Lux"));
+        lux.lock().unwrap().current = 7;
+        let mut c = controller(&lux).with_skin_memory(&path);
+        c.tick();
+        assert_eq!(c.snapshot().original_skin, Some(7));
+        assert_eq!(c.snapshot().desired_skin, Some(chroma));
+        c.drive();
+        assert_eq!(c.snapshot().current_skin, Some(chroma));
+        c.shutdown();
+        assert_eq!(lux.lock().unwrap().current, 7);
+
+        let ahri = MockGame::shared(Some("Ahri"));
+        let mut c = controller(&ahri).with_skin_memory(&path);
+        c.tick();
+        c.drive();
+        assert_eq!(ahri.lock().unwrap().applied, [1]);
+    }
+
+    #[test]
+    fn selecting_current_skin_remembers_it_and_explicit_restore_forgets_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("last-skins.json");
+        let game = MockGame::shared(Some("Varus"));
+        game.lock().unwrap().current = 6;
+        let mut c = controller(&game).with_skin_memory(&path);
+        c.tick();
+        c.select(6);
+        c.drive();
+        assert!(game.lock().unwrap().applied.is_empty());
+        c.shutdown();
+
+        let game = MockGame::shared(Some("Varus"));
+        let mut c = controller(&game).with_skin_memory(&path);
+        c.tick();
+        c.drive();
+        assert_eq!(game.lock().unwrap().applied, [6]);
+        c.request_restore();
+        c.drive();
+        assert_eq!(game.lock().unwrap().current, 0);
+        c.shutdown();
+
+        let game = MockGame::shared(Some("Varus"));
+        let mut c = controller(&game).with_skin_memory(&path);
+        c.tick();
+        c.drive();
+        assert!(game.lock().unwrap().applied.is_empty());
+    }
+
+    #[test]
+    fn stale_catalog_ids_and_failed_choices_are_not_reapplied() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("last-skins.json");
+        std::fs::write(&path, r#"{"Ahri":99999}"#).unwrap();
+        let game = MockGame::shared(Some("Ahri"));
+        let mut c = controller(&game).with_skin_memory(&path);
+        c.tick();
+        c.drive();
+        assert!(game.lock().unwrap().applied.is_empty());
+        c.select(1);
+        c.drive();
+        c.select(2);
+        game.lock().unwrap().running = false;
+        c.drive();
+
+        let game = MockGame::shared(Some("Ahri"));
+        let mut c = controller(&game).with_skin_memory(&path);
+        c.tick();
+        c.drive();
+        assert_eq!(game.lock().unwrap().applied, [1]);
     }
 
     #[test]

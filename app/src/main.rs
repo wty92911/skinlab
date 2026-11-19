@@ -298,7 +298,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Mode::Demo => Box::new(MockBackend::demo(&demo_hero(&catalog))),
     };
     let emitter = handle.clone();
-    let controller = Controller::new(backend, catalog, Timing::default())
+    let controller = Controller::new(backend, catalog, Timing::default());
+    let controller = if matches!(mode, Mode::Game) {
+        controller.with_skin_memory(settings_path.with_file_name("last-skins.json"))
+    } else {
+        controller
+    };
+    let controller = controller
         .paused(settings.notice_accepted < NOTICE_VERSION)
         .on_change(move |snapshot| {
             let _ = emitter.emit("snapshot", snapshot);

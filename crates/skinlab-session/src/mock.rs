@@ -122,8 +122,9 @@ impl Backend for MockBackend {
             return Err(SessionError::new(HostFailureKind::NotReady, "等待英雄载入…", None).into());
         }
         let last = Some(reply(&game, SessionState::Ready));
+        let original = game.current;
         drop(game);
-        Ok(Box::new(MockSession { game: self.game.clone(), original: 0, last }))
+        Ok(Box::new(MockSession { game: self.game.clone(), original, last }))
     }
 }
 
