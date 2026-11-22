@@ -20,6 +20,11 @@
       "version": "16.23.839.6851",
       "region": "cn",
       "sha256": "dad988446ebec0b76169bdff58056af2664d823ff63eea87df0db0ce01f743fa"
+    },
+    {
+      "version": "16.23.840.6595",
+      "region": "cn",
+      "sha256": "d98cce8ad7863925c3b85d19a2f7c573506b08a738b5547a37697838e6060a5e"
     }
   ]
 }

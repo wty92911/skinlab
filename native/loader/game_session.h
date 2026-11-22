@@ -9,6 +9,8 @@ struct GameSession:SessionBinding {
     SessionProbeSites probe_sites{};
     OwnedStackLayer layer{};
     FormSkinSync form_skins{};
+    SkinGearSync skin_gears{};
+    bool gear_selected=false;
     SlStatus form_status=SL_OK;
     ~GameSession(){if(controller)CloseHandle(controller);}
     static uint64_t SL_CALL generation(void* context) {
@@ -23,24 +25,42 @@ struct GameSession:SessionBinding {
         if(session.form_skins.enabled()
            &&(!local_copy(reinterpret_cast<uintptr_t>(stack)+session.config.layout.stack_skin_offset,&skin,4)
               ||session.form_skins.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),skin,changed)!=SL_OK))return 0;
+        if(session.skin_gears.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),changed)!=SL_OK)return 0;
         if(!SessionBinding::refresh(static_cast<SessionBinding*>(&session),stack,force))return 0;
         // A failed commit must enter the core's normal rollback/recovery path.
-        return session.form_skins.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),skin,changed,false)==SL_OK&&!changed;
+        if(session.form_skins.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),skin,changed,false)!=SL_OK||changed)return 0;
+        return session.skin_gears.synchronize(session.config,reinterpret_cast<uintptr_t>(stack),changed,false)==SL_OK&&!changed;
+    }
+    SlStatus finish_gear(SlStatus result) {
+        // The core skips refresh for an unchanged skin and an inactive restore.
+        // Gear can still need initialization/restoration in those two cases.
+        if(result==SL_OK) {
+            const auto stack=reinterpret_cast<uintptr_t>(config.object_data)+config.layout.character_stack_offset;
+            bool changed=false;
+            result=skin_gears.synchronize(config,stack,changed);
+            if(result==SL_OK&&changed&&!refresh(this,reinterpret_cast<void*>(stack),1))result=SL_RECOVERY_REQUIRED;
+            if(result!=SL_OK&&result!=SL_TARGET_CHANGED)result=SL_RECOVERY_REQUIRED;
+        }
+        skin_gears.end();return result;
     }
     SlStatus synchronize_form() {
-        if(!form_skins.enabled()||form_status!=SL_OK)return form_status;
+        if((!form_skins.enabled()&&!skin_gears.enabled())||form_status!=SL_OK)return form_status;
         SlState state{};state.struct_size=sizeof(state);
         auto result=api.state(core,&state);
         if(result!=SL_OK)return result;
-        if(!(state.flags&SL_STATE_ACTIVE))return SL_OK;
+        if(!(state.flags&SL_STATE_ACTIVE)&&!gear_selected)return SL_OK;
         if(state.flags&SL_STATE_RECOVERY_REQUIRED)return SL_RECOVERY_REQUIRED;
         if(state.current_skin<0||uint32_t(state.current_skin)!=state.current_stack_skin)return SL_INCONSISTENT_STATE;
         const auto stack=reinterpret_cast<uintptr_t>(config.object_data)+config.layout.character_stack_offset;
         bool changed=false;
         result=form_skins.synchronize(config,stack,state.current_stack_skin,changed);
         if(result!=SL_OK)return result;
+        result=skin_gears.begin(config,stack,state.current_stack_skin);
+        if(result!=SL_OK)return result;
         // No per-frame refresh when the game has kept the selected skin.
-        if(changed&&!refresh(this,reinterpret_cast<void*>(stack),1))return SL_RECOVERY_REQUIRED;
+        if(changed&&!refresh(this,reinterpret_cast<void*>(stack),1))result=SL_RECOVERY_REQUIRED;
+        result=finish_gear(result);
+        if(result!=SL_OK)return result;
         return config.generation(config.context)==config.expected_generation?SL_OK:SL_TARGET_CHANGED;
     }
     static int SL_CALL catalog(void* context,int32_t skin) {
@@ -79,9 +99,13 @@ struct GameSession:SessionBinding {
         if(p.finished)return;
         out.render_tid=GetCurrentThreadId();
         if(!p.initialized) {
-            p.initialized=true;const auto result=p.api.create(&p.config,&p.core);
+            p.initialized=true;auto result=p.api.create(&p.config,&p.core);
             p.layer.thread=GetCurrentThreadId();
             const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+            if(result==SL_OK)result=p.skin_gears.initialize(p.config,stack);
+            // Initialization has not applied anything; destroy this inactive
+            // core without leaving a failed session holding an unused runtime.
+            if(result!=SL_OK&&p.core)p.api.destroy(&p.core);
             uintptr_t values[3]{};uint8_t gear=0;
             out.forms_available=p.layer.push&&p.layer.destroy&&p.layer.header(stack,values)&&values[0]==values[1]
                 &&local_copy(stack+0x9c,&gear,1)&&gear==0xff;
@@ -117,21 +141,31 @@ struct GameSession:SessionBinding {
         SlStatus result=SL_INVALID_ARGUMENT;
         if(command==1) {
             result=p.form_status==SL_OK?p.clear_form():p.form_status;
+            const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+            if(result==SL_OK)result=p.skin_gears.begin(p.config,stack,requested);
             if(result==SL_OK)result=p.api.apply(p.core,static_cast<int32_t>(requested));
+            result=p.finish_gear(result);
             if(result==SL_OK) {
+                p.gear_selected=p.skin_gears.enabled();
                 result=p.synchronize_form();
                 if(result!=SL_OK)p.form_status=result=result==SL_TARGET_CHANGED?result:SL_RECOVERY_REQUIRED;
             }
         } else if(command==2) {
             result=p.clear_form();
+            const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+            if(result==SL_OK)result=p.skin_gears.begin(p.config,stack,p.skin_gears.original_skin,true);
             if(result==SL_OK)result=p.api.restore(p.core);
-            if(result==SL_OK)p.form_status=SL_OK;
+            result=p.finish_gear(result);
+            if(result==SL_OK){p.form_status=SL_OK;p.gear_selected=false;}
         }
         else if(command==3) {
             SlState state{};state.struct_size=sizeof(state);
             result=p.clear_form();
+            const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
+            if(result==SL_OK)result=p.skin_gears.begin(p.config,stack,p.skin_gears.original_skin,true);
             if(result==SL_OK)result=p.api.restore(p.core);
-            if(result==SL_OK)p.form_status=SL_OK;
+            result=p.finish_gear(result);
+            if(result==SL_OK){p.form_status=SL_OK;p.gear_selected=false;}
             if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK){out.session_skin=state.current_skin;out.session_encoded_skin=state.current_encoded_skin;}
             if(result==SL_OK)result=p.api.destroy(&p.core);
             if(result==SL_OK){p.finished=true;out.session_state=3;}
@@ -165,6 +199,7 @@ struct GameSession:SessionBinding {
                 }
             }
         }
+        if(p.skin_gears.enabled()&&(result==SL_RECOVERY_REQUIRED||result==SL_TARGET_CHANGED))p.form_status=result;
         p.publish(result,sequence);
         if(disconnected&&result!=SL_OK) {
             // Keep recovery responsibility. Stop is retried only by an explicit
@@ -243,6 +278,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
         s->form_skins.champion=s->model;
+        s->skin_gears.champion=s->model;
         s->layout={skin.field_offset,stack.field_offset,skinlab::league::kStackSkinOffset,skin.rotate_first,skin.xor_key,skin.rotate_second,skin.codec_kind,skin.add_key,skin.xor_key_second};
         auto& cfg=s->config;cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LEAGUE_EXPERIMENT;
         cfg.layout=s->layout;cfg.object_data=reinterpret_cast<void*>(s->player);cfg.object_size=s->layout.character_stack_offset+skinlab::league::kMinimumStackSkinExtent;

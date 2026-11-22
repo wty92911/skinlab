@@ -8,6 +8,7 @@
 #include <cstring>
 #include <skinlab/league_fields.h>
 #include "lux_forms.h"
+extern "C" SlStatus SL_CALL skinlab_get_api(uint32_t,SlApi*) noexcept;
 
 namespace {
 bool local_copy(uintptr_t address,void* output,size_t size) {
@@ -16,6 +17,7 @@ bool local_copy(uintptr_t address,void* output,size_t size) {
 }
 #include "owned_layer.h"
 #include "form_skin.h"
+#include "skin_gear.h"
 struct LayerFixture {
     alignas(8) uint8_t stack[512]{},entries[320]{};
     uint64_t generation=9;
@@ -125,6 +127,113 @@ bool check_form_skin(const FormSkinSync::Rule& rule) {
     fixture.generation=10;
     return sync.synchronize(config,stack,1,changed)==SL_TARGET_CHANGED&&!changed;
 }
+struct GearFixture {
+    alignas(8) uint8_t object[512]{};
+    uint64_t generation=9;
+    uint32_t refreshes=0;
+    bool fail_next=false;
+    SlConfig config{};SlApi api{};SlRuntime* core=nullptr;
+    SkinGearSync gears{};
+    uintptr_t stack() {return reinterpret_cast<uintptr_t>(object+0x80);}
+    uint8_t& gear() {return object[0x80+SkinGearSync::gear_offset];}
+    uint32_t skin() {uint32_t value=0;std::memcpy(&value,object+0xb8,4);return value;}
+    static uint64_t SL_CALL identity(void* context) {return static_cast<GearFixture*>(context)->generation;}
+    static int SL_CALL allowed(void*,int32_t skin) {return skin>=0&&skin<1000;}
+    static int SL_CALL refresh(void* context,void* stack,int force) {
+        auto& f=*static_cast<GearFixture*>(context);bool changed=false;
+        if(reinterpret_cast<uintptr_t>(stack)!=f.stack()||force!=1
+           ||f.gears.synchronize(f.config,f.stack(),changed)!=SL_OK)return 0;
+        ++f.refreshes;
+        if(f.fail_next){f.fail_next=false;return 0;}
+        return f.gears.synchronize(f.config,f.stack(),changed,false)==SL_OK&&!changed;
+    }
+    bool initialize(uint32_t original,uint8_t initial,const char* champion="Katarina") {
+        const char* model="Katarina";
+        std::memcpy(object+0x98,&model,sizeof(model));
+        std::memcpy(object+0x20,&original,4);std::memcpy(object+0xb8,&original,4);gear()=initial;
+        config.struct_size=sizeof(config);config.abi_version=SL_ABI_VERSION;config.binding_kind=SL_BINDING_LOCAL_FIXTURE;
+        config.layout={0x20,0x80,0x38,0,0,0,0,0,0};config.object_data=object;config.object_size=sizeof(object);
+        config.context=this;config.expected_generation=9;config.generation=identity;config.skin_allowed=allowed;config.refresh=refresh;
+        gears.champion=champion;api.struct_size=sizeof(api);
+        return skinlab_get_api(SL_ABI_VERSION,&api)==SL_OK&&gears.initialize(config,stack())==SL_OK&&api.create(&config,&core)==SL_OK;
+    }
+    SlStatus apply(uint32_t selected) {
+        auto result=gears.begin(config,stack(),selected);
+        if(result==SL_OK)result=api.apply(core,int32_t(selected));
+        gears.end();return result;
+    }
+    SlStatus restore() {
+        auto result=gears.begin(config,stack(),gears.original_skin,true);
+        if(result==SL_OK)result=api.restore(core);
+        gears.end();return result;
+    }
+    ~GearFixture() {
+        if(!core)return;
+        gears.end();gears.begin(config,stack(),gears.original_skin,true);
+        api.destroy(&core);gears.end();
+        if(core)api.abandon_destroyed_target(&core);
+    }
+};
+bool check_skin_gear() {
+    GearFixture f{};
+    if(!f.initialize(0,0xff)||f.apply(29)!=SL_OK||f.skin()!=29||f.gear()!=0||f.refreshes!=1)return false;
+    f.gear()=4; // A game-driven knife change must survive chroma selection.
+    if(f.apply(30)!=SL_OK||f.skin()!=30||f.gear()!=4)return false;
+    f.fail_next=true;
+    // Use the actual core rollback: the failed ordinary skin wrote ff, then
+    // its rollback callback must recover knife 4 rather than initializing 0.
+    if(f.apply(1)!=SL_UPDATE_FAILED||f.skin()!=30||f.gear()!=4||f.refreshes!=4)return false;
+    if(f.apply(1)!=SL_OK||f.gear()!=0xff||f.restore()!=SL_OK||f.skin()!=0||f.gear()!=0xff)return false;
+    // Same-skin frame repair is separate from core.apply's intentional no-op.
+    if(f.apply(29)!=SL_OK)return false;
+    f.gear()=0xff;bool changed=false;
+    if(f.gears.begin(f.config,f.stack(),29)!=SL_OK
+       ||f.gears.synchronize(f.config,f.stack(),changed,false)!=SL_OK||!changed||f.gear()!=0xff
+       ||f.gears.synchronize(f.config,f.stack(),changed)!=SL_OK||!changed||f.gear()!=0
+       ||!GearFixture::refresh(&f,reinterpret_cast<void*>(f.stack()),1))return false;
+    f.gears.end();const auto refreshes=f.refreshes;f.gear()=5;
+    if(f.gears.begin(f.config,f.stack(),29)!=SL_OK
+       ||f.gears.synchronize(f.config,f.stack(),changed)!=SL_OK||changed||f.gear()!=5||f.refreshes!=refreshes)return false;
+    f.gears.end();if(f.restore()!=SL_OK)return false;
+    // Original Battle Queen can already have a nondefault or invalid gear;
+    // restore preserves its exact byte, including the reported ff state.
+    for(const uint8_t original:{uint8_t(3),uint8_t(0xff)}) {
+        GearFixture own{};
+        if(!own.initialize(29,original)||own.apply(0)!=SL_OK||own.gear()!=0xff
+           ||own.apply(36)!=SL_OK||own.gear()!=0
+           ||own.restore()!=SL_OK||own.skin()!=29||own.gear()!=original)return false;
+    }
+    GearFixture other{};
+    if(!other.initialize(0,0xff,"Viego")||other.apply(29)!=SL_OK||other.gear()!=0xff||other.restore()!=SL_OK)return false;
+    // No write through borrowed models, invalid identity, or a different thread.
+    const char* borrowed="OtherHero";std::memcpy(f.object+0x98,&borrowed,sizeof(borrowed));
+    if(f.gears.begin(f.config,f.stack(),29)!=SL_INCONSISTENT_STATE||f.gear()!=0xff)return false;
+    const char* model="Katarina";std::memcpy(f.object+0x98,&model,sizeof(model));
+    f.generation=10;
+    if(f.gears.begin(f.config,f.stack(),29)!=SL_TARGET_CHANGED||f.gear()!=0xff)return false;
+    f.generation=9;f.gears.thread^=1;
+    if(f.gears.begin(f.config,f.stack(),29)!=SL_WRONG_THREAD||f.gear()!=0xff)return false;
+    f.gears.thread=GetCurrentThreadId();
+    // A game-owned extra layer is outside this base-gear rule.
+    const uintptr_t header[]={0x10000,0x100a0,0x100a0};std::memcpy(f.object+0x80,header,sizeof(header));
+    if(f.gears.begin(f.config,f.stack(),29)!=SL_OK)return false;
+    uint32_t selected=29;std::memcpy(f.object+0xb8,&selected,4);
+    if(f.gears.synchronize(f.config,f.stack(),changed)!=SL_INCONSISTENT_STATE||f.gear()!=0xff)return false;
+    std::memset(f.object+0x80,0,sizeof(header));selected=0;std::memcpy(f.object+0xb8,&selected,4);f.gears.end();
+    // Readable storage alone is not permission to patch it.
+    auto* page=static_cast<uint8_t*>(VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
+    if(!page)return false;
+    std::memcpy(page,f.object,sizeof(f.object));
+    SlConfig page_config=f.config;page_config.object_data=page;
+    const auto page_stack=reinterpret_cast<uintptr_t>(page+0x80);
+    SkinGearSync readonly{};readonly.champion="Katarina";DWORD protection=0,ignored=0;
+    bool ok=readonly.initialize(page_config,page_stack)==SL_OK&&readonly.begin(page_config,page_stack,29)==SL_OK;
+    selected=29;std::memcpy(page+0xb8,&selected,4);
+    ok=ok&&VirtualProtect(page,4096,PAGE_READONLY,&protection);
+    if(ok)ok=readonly.synchronize(page_config,page_stack,changed)==SL_INCONSISTENT_STATE&&page[0x80+SkinGearSync::gear_offset]==0xff;
+    if(protection)VirtualProtect(page,4096,protection,&ignored);
+    VirtualFree(page,0,MEM_RELEASE);return ok;
+}
 SlObserveShared* shared=nullptr;HANDLE ready=nullptr;
 IDXGISwapChain* fixture_chain=nullptr;ID3D11Device* device=nullptr;ID3D11DeviceContext* device_context=nullptr;
 alignas(8) unsigned char object[512]{};
@@ -157,6 +266,7 @@ int wmain(int argc,wchar_t** argv) {
     if(argc!=2)return 2;
     if(!check_owned_layer())return 10;
     for(const auto& rule:FormSkinSync::rules)if(!check_form_skin(rule))return 11;
+    if(!check_skin_gear())return 12;
     HANDLE mapping=OpenFileMappingW(FILE_MAP_READ|FILE_MAP_WRITE,FALSE,argv[1]);if(!mapping)return 3;
     shared=static_cast<SlObserveShared*>(MapViewOfFile(mapping,FILE_MAP_READ|FILE_MAP_WRITE,0,0,sizeof(SlObserveShared)));
     ready=OpenEventW(EVENT_MODIFY_STATE,FALSE,(std::wstring(argv[1])+L"-ready").c_str());

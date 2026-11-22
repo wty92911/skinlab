@@ -106,7 +106,17 @@ pub fn build(root: &Path, args: &[String]) -> Result<()> {
     compile(
         root,
         &compiler,
-        &["-municode", "native/lab/observe_fixture.cpp", "-o", &fixture, "-luser32", "-ld3d11", "-ldxgi", "-ldxguid"],
+        &[
+            "-municode",
+            "native/lab/observe_fixture.cpp",
+            "native/src/core.cpp",
+            "-o",
+            &fixture,
+            "-luser32",
+            "-ld3d11",
+            "-ldxgi",
+            "-ldxguid",
+        ],
         "WARP fixture",
     )?;
 
