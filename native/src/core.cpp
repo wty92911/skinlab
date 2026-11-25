@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <skinlab/api.h>
 #include <skinlab/skin_codec.h>
+#include <skinlab/skin_fields.h>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -11,10 +12,7 @@
 static_assert(sizeof(void*) == 8, "SkinLab requires a 64-bit build");
 
 namespace {
-struct Snapshot { uint32_t encoded; uint32_t skin; };
-bool same(const Snapshot& left, const Snapshot& right) noexcept {
-    return left.encoded == right.encoded && left.skin == right.skin;
-}
+using skinlab::fields::Snapshot;
 uint32_t SL_CALL encode(uint32_t skin, uint32_t a, uint32_t key, uint32_t b) noexcept {
     return skinlab::codec::encode(skin,0,a,key,b,0);
 }
@@ -48,37 +46,19 @@ struct SlRuntime {
     bool active = false;
     bool recovery = false;
     Snapshot original{};
-    size_t encoded_offset;
-    size_t stack_skin_offset;
 
     explicit SlRuntime(const SlConfig& value) noexcept
-        : config(value), owner_thread(GetCurrentThreadId()),
-          encoded_offset(value.layout.object_skin_offset),
-          stack_skin_offset(size_t(value.layout.character_stack_offset) + value.layout.stack_skin_offset) {}
+        : config(value), owner_thread(GetCurrentThreadId()) {}
 
     SlStatus check_target() const noexcept {
         return config.generation(config.context) == config.expected_generation
             ? SL_OK : SL_TARGET_CHANGED;
     }
     Snapshot read() const noexcept {
-        Snapshot value{};
-        const auto* data = static_cast<const unsigned char*>(config.object_data);
-        std::memcpy(&value.encoded, data + encoded_offset, sizeof(value.encoded));
-        std::memcpy(&value.skin, data + stack_skin_offset, sizeof(value.skin));
-        return value;
-    }
-    void write(const Snapshot& value) noexcept {
-        auto* data = static_cast<unsigned char*>(config.object_data);
-        std::memcpy(data + encoded_offset, &value.encoded, sizeof(value.encoded));
-        std::memcpy(data + stack_skin_offset, &value.skin, sizeof(value.skin));
+        return skinlab::fields::read(config);
     }
     uint32_t decoded(const Snapshot& value) const noexcept {
-        const auto& layout = config.layout;
-        return skinlab::codec::decode(value.encoded,layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key,layout.xor_key_second);
-    }
-    bool refresh() const noexcept {
-        auto* stack = static_cast<unsigned char*>(config.object_data) + config.layout.character_stack_offset;
-        return config.refresh(config.context, stack, 1) != 0;
+        return skinlab::fields::decoded(config.layout,value);
     }
     void log(const char* event, SlStatus status) const noexcept {
         if (config.log) config.log(config.context, event, status);
@@ -100,19 +80,8 @@ struct Operation {
 
 SlStatus SL_CALL create(const SlConfig* config, SlRuntime** output) noexcept {
     if (!output || *output || !config || config->struct_size < sizeof(SlConfig)) return SL_INVALID_ARGUMENT;
-    if (config->abi_version != SL_ABI_VERSION) return SL_ABI_MISMATCH;
-    if (!skinlab::codec::valid(config->layout.codec_kind,config->layout.rotation_a,config->layout.rotation_b)) return SL_INVALID_ARGUMENT;
-    // A real adapter needs a verified runtime profile and loading path first.
-    // Accepting guessed game offsets here would misrepresent compatibility.
-    if (config->binding_kind != SL_BINDING_LOCAL_FIXTURE && config->binding_kind != SL_BINDING_LEAGUE_EXPERIMENT) return SL_UNSUPPORTED_BINDING;
-    if (!config->object_data || !config->expected_generation || !config->generation ||
-        !config->skin_allowed || !config->refresh) return SL_INVALID_ARGUMENT;
-    const uint64_t encoded = config->layout.object_skin_offset;
-    const uint64_t stack = uint64_t(config->layout.character_stack_offset) + config->layout.stack_skin_offset;
-    const uint64_t end = (encoded > stack ? encoded : stack) + sizeof(uint32_t);
-    const uintptr_t address = reinterpret_cast<uintptr_t>(config->object_data);
-    if (end > config->object_size || end > std::numeric_limits<uintptr_t>::max() - address ||
-        (encoded < stack + 4 && stack < encoded + 4)) return SL_LAYOUT_OUT_OF_RANGE;
+    const auto valid=skinlab::fields::validate(*config);
+    if(valid!=SL_OK)return valid;
     auto* runtime = new(std::nothrow) SlRuntime(*config);
     if (!runtime) return SL_ALLOCATION_FAILED;
     SlStatus status = runtime->check_target();
@@ -159,26 +128,24 @@ SlStatus SL_CALL apply(SlRuntime* runtime, int32_t skin_id) noexcept {
     const bool was_active = runtime->active;
     if (!was_active) runtime->original = before;
     runtime->active = true;
-    const auto& layout = runtime->config.layout;
-    const Snapshot desired{skinlab::codec::encode(static_cast<uint32_t>(skin_id),layout.codec_kind,layout.rotation_a,layout.xor_key,layout.rotation_b,layout.add_key,layout.xor_key_second),static_cast<uint32_t>(skin_id)};
-    runtime->write(desired);
-    const bool refreshed = runtime->refresh();
-    if (runtime->check_target() != SL_OK) {
+    const auto desired=skinlab::fields::encoded(runtime->config.layout,static_cast<uint32_t>(skin_id));
+    const auto result=skinlab::fields::replace(runtime->config,before,desired);
+    if (result.status==SL_RECOVERY_REQUIRED&&result.target_lost) {
         runtime->recovery = true;
         runtime->log("skin.target_lost_during_refresh", SL_RECOVERY_REQUIRED);
         return SL_RECOVERY_REQUIRED;
     }
-    if (refreshed && same(runtime->read(), desired)) {
+    if (result.status==SL_OK) {
         runtime->log("skin.applied", SL_OK);
         return SL_OK;
     }
-    runtime->write(before);
-    if (!runtime->refresh() || runtime->check_target() != SL_OK || !same(runtime->read(), before)) {
+    if (result.status==SL_RECOVERY_REQUIRED) {
         runtime->recovery = true;
         runtime->log("skin.rollback_refresh_failed", SL_RECOVERY_REQUIRED);
         return SL_RECOVERY_REQUIRED;
     }
     runtime->active = was_active;
+    if(result.status!=SL_UPDATE_FAILED)return result.status;
     runtime->log("skin.apply_rolled_back", SL_UPDATE_FAILED);
     return SL_UPDATE_FAILED;
 }
@@ -187,8 +154,9 @@ SlStatus restore_impl(SlRuntime* runtime) noexcept {
     if (!runtime->active && !runtime->recovery) return SL_OK;
     const SlStatus status = runtime->check_target();
     if (status != SL_OK) return status;
-    runtime->write(runtime->original);
-    if (!runtime->refresh() || runtime->check_target() != SL_OK || !same(runtime->read(), runtime->original)) {
+    const auto result=skinlab::fields::restore(runtime->config,runtime->original);
+    if(result==SL_TARGET_CHANGED)return result;
+    if (result!=SL_OK) {
         runtime->recovery = true;
         runtime->log("skin.restore_refresh_failed", SL_RECOVERY_REQUIRED);
         return SL_RECOVERY_REQUIRED;

@@ -63,12 +63,17 @@ pub fn run(root: &Path) -> Result<()> {
     let inspected = session.command(Command::Inspect)?;
     let probe = inspected.stack_probe.context("inspect must return a frame snapshot")?;
     ensure!(
-        probe.schema_version == 1
+        probe.schema_version == 2
             && probe.read_status == 1
             && probe.sequence > 0
             && probe.render_tid == before.render_tid
             && probe.render_tid != 0,
         "probe did not run on the fixture's render thread"
+    );
+    let models = probe.models.as_ref().context("inspect must include bounded model diagnostics")?;
+    ensure!(
+        models.read_status == 3 && models.layers.is_empty(),
+        "opaque fixture bytes must not be mistaken for known model layers"
     );
     ensure!(
         probe.stack_prefix_hex.len() == 176 * 2

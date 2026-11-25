@@ -7,6 +7,7 @@
 #include <skinlab/dx11_bridge.h>
 #include <skinlab/league_fields.h>
 #include <skinlab/skin_codec.h>
+#include <skinlab/skin_fields.h>
 #include "session_fixture.h"
 #include <algorithm>
 #include <cstring>
@@ -60,12 +61,21 @@ void copy_text(char (&out)[192],const std::string& text) {
     const size_t count=std::min<size_t>(text.size(),sizeof(out)-1);
     std::memcpy(out,text.data(),count);out[count]=0;
 }
+#include "skin_resource_update.h"
 #include "session_binding.h"
 #include "lux_forms.h"
 #include "owned_layer.h"
 #include "form_skin.h"
 #include "skin_gear.h"
+#include "summon_skin.h"
+#include "skin_catalog.h"
+#include "model_probe.h"
+#include "owner_link.h"
+#include "minion_binding.h"
+#include "minion_probe.h"
+#include "owner_probe.h"
 #include "session_probe.h"
+#include "skin_resource_probe.h"
 #include "game_session.h"
 bool target_scope() {
     wchar_t image[32768];const DWORD count=GetModuleFileNameW(nullptr,image,32768);
@@ -110,6 +120,29 @@ DWORD WINAPI observe(void* parameter) {
                 out.stack_probe.stack_reference_count=sites.stack_reference_count;
                 if(out.player_read_status==1&&out.player_stable&&out.stack_address)resolve_gear_probe(sites,uintptr_t(out.stack_address));
                 collect_code_probe(sites,out.stack_probe.code);
+            }
+            if(out.request_session==3||out.request_session==4||out.request_session==5) {
+                const auto sites=session_probe_sites(image,results);
+                collect_owner_code(image.module_base,image.image_size,sites.owner_candidate,sites.owner_context,out.stack_probe.code);
+                if((out.request_session==4||out.request_session==5)&&out.player_read_status==1&&out.player_stable&&out.skin_fields_agree) {
+                    WeakSkinSource source{};
+                    const skinlab::profile::Candidate* player_rule=nullptr,*stack_rule=nullptr;
+                    const auto* skin=skinlab::profile::skin_codec(results);
+                    for(const auto& rule:results)if(rule.has_candidate) {
+                        if(rule.name=="local_player")player_rule=&rule.candidate;
+                        if(rule.name=="character_data_stack")stack_rule=&rule.candidate;
+                    }
+                    if(player_rule&&stack_rule&&skin&&(!skin->referenced_stack_offset||skin->referenced_stack_offset==stack_rule->field_offset)
+                       &&(out.request_session==5||(sites.minion_slot&&source.bind(image.module_base,image.image_size,sites.owner_candidate)))) {
+                        SessionBinding binding{};binding.slot=image.module_base+player_rule->rva;binding.player=out.player_address;
+                        binding.layout={skin->field_offset,stack_rule->field_offset,skinlab::league::kStackSkinOffset,
+                            skin->rotate_first,skin->xor_key,skin->rotate_second,skin->codec_kind,skin->add_key,skin->xor_key_second};
+                        SlConfig config{};config.layout=binding.layout;config.object_data=reinterpret_cast<void*>(binding.player);
+                        config.context=&binding;config.expected_generation=binding.player;config.generation=SessionBinding::generation;
+                        if(out.request_session==4)collect_minion_probe(config,image.module_base+sites.minion_slot,sites.minion_slot,0,0,0,0,out.model_name,out.stack_probe.minions,&source);
+                        else collect_skin_resource_probe(config,image.module_base,image.image_size,sites.rvas[1],out.stack_probe.resources,out.stack_probe.code);
+                    }
+                }
             }
             if(out.request_session==1) {
                 out.result_count=uint32_t(results.size());

@@ -5,6 +5,7 @@ struct SessionBinding {
     std::shared_ptr<Work> work;
     uintptr_t slot=0,player=0,update=0;
     SlLayout layout{};
+    SkinResourceUpdate resource_update{};
     SlApi api{};SlRuntime* core=nullptr;SlDx11Runtime* bridge=nullptr;
     bool finished=false;
     static uint64_t SL_CALL generation(void* context) {
@@ -14,7 +15,8 @@ struct SessionBinding {
             local_copy(current+p.layout.character_stack_offset+skinlab::league::kStackSkinOffset,&value,4)?p.player:0;
     }
     static int SL_CALL refresh(void* context,void* stack,int force) {
+        if(force!=1)return 0;
         auto& p=*static_cast<SessionBinding*>(context);++p.work->shared->refresh_calls;
-        reinterpret_cast<void(__fastcall*)(void*,bool)>(p.update)(stack,force!=0);return 1;
+        p.resource_update.invoke(p.update,stack);return 1;
     }
 };

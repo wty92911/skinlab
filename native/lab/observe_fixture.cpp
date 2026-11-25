@@ -7,17 +7,37 @@
 #include <d3d11.h>
 #include <cstring>
 #include <skinlab/league_fields.h>
+#include <skinlab/skin_fields.h>
 #include "lux_forms.h"
 extern "C" SlStatus SL_CALL skinlab_get_api(uint32_t,SlApi*) noexcept;
 
 namespace {
+void (*fixture_read_callback)(void*,uintptr_t)=nullptr;
+void* fixture_read_context=nullptr;
 bool local_copy(uintptr_t address,void* output,size_t size) {
+    if(fixture_read_callback)fixture_read_callback(fixture_read_context,address);
     SIZE_T done=0;
     return ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(address),output,size,&done)&&done==size;
 }
 #include "owned_layer.h"
 #include "form_skin.h"
 #include "skin_gear.h"
+#include "model_probe.h"
+#include "model_probe_fixture.h"
+#include "summon_skin.h"
+#include "skin_catalog.h"
+#include "owner_link.h"
+#include "owner_link_fixture.h"
+#include "minion_binding.h"
+#include "minion_binding_fixture.h"
+#include "minion_probe.h"
+#include "minion_probe_fixture.h"
+#include "owner_probe.h"
+#include "owner_probe_fixture.h"
+#include "skin_resource_update.h"
+#include "skin_resource_probe.h"
+#include "skin_resource_probe_fixture.h"
+#include "summon_fixture.h"
 struct LayerFixture {
     alignas(8) uint8_t stack[512]{},entries[320]{};
     uint64_t generation=9;
@@ -267,6 +287,13 @@ int wmain(int argc,wchar_t** argv) {
     if(!check_owned_layer())return 10;
     for(const auto& rule:FormSkinSync::rules)if(!check_form_skin(rule))return 11;
     if(!check_skin_gear())return 12;
+    if(!check_summon_skin())return 13;
+    if(!check_model_probe())return 14;
+    if(!check_minion_probe())return 15;
+    if(!check_owner_probe())return 16;
+    if(!check_owner_link())return 17;
+    if(!check_minion_binding())return 18;
+    if(!check_skin_resource_probe())return 19;
     HANDLE mapping=OpenFileMappingW(FILE_MAP_READ|FILE_MAP_WRITE,FALSE,argv[1]);if(!mapping)return 3;
     shared=static_cast<SlObserveShared*>(MapViewOfFile(mapping,FILE_MAP_READ|FILE_MAP_WRITE,0,0,sizeof(SlObserveShared)));
     ready=OpenEventW(EVENT_MODIFY_STATE,FALSE,(std::wstring(argv[1])+L"-ready").c_str());

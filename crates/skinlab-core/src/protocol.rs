@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Line protocol spoken by `skinlab-observe-host.exe --session`: one command
 //! per stdin line, one JSON reply per stdout line.
-//! Native components use shared-memory v10 and core ABI v3 and must be rebuilt together.
+//! Native components use shared-memory v17 and core ABI v3 and must be rebuilt together.
 
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +72,100 @@ pub struct StackProbe {
     pub layers_head_hex: String,
     pub layers_tail_hex: String,
     pub code: Vec<CodeProbe>,
+    #[serde(default)]
+    pub models: Option<StackModelsProbe>,
+    #[serde(default)]
+    pub minions: Option<MinionProbe>,
+    #[serde(default)]
+    pub resources: Option<SkinResourceProbe>,
+}
+
+/// Raw cache and callback observations; no engine callbacks are executed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkinResourceProbe {
+    pub read_status: u32,
+    pub owner_member: u32,
+    pub owner: u64,
+    pub table: u64,
+    pub targets: Vec<u64>,
+    pub cache_hex: String,
+}
+
+/// Read-only discovery candidates. These spans do not establish object
+/// enumeration, layout, ownership, spawn identity or permission to update.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MinionProbe {
+    pub read_status: u32,
+    pub slot_rva: u32,
+    pub context_rva: u32,
+    pub callee_rva: u32,
+    pub manager: u64,
+    pub player: u64,
+    #[serde(default)]
+    pub source_member: u32,
+    pub tries: u32,
+    pub budget_exhausted: bool,
+    pub manager_prefix_hex: String,
+    pub player_prefix_hex: String,
+    pub context_hex: String,
+    pub callee_hex: String,
+    pub arrays: Vec<MinionArrayProbe>,
+    pub objects: Vec<MinionObjectProbe>,
+    #[serde(default)]
+    pub owner_candidate: Option<CodeProbe>,
+    #[serde(default)]
+    pub owner_context: Option<CodeProbe>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MinionArrayProbe {
+    pub field_offset: u32,
+    pub address: u64,
+    pub bytes_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MinionObjectProbe {
+    pub read_status: u32,
+    pub address: u64,
+    pub model: String,
+    pub prefix_hex: String,
+    #[serde(default)]
+    pub counted_member: bool,
+    #[serde(default)]
+    pub source_status: u32,
+    #[serde(default)]
+    pub source_strong: u32,
+    #[serde(default)]
+    pub source_cell: u64,
+    #[serde(default)]
+    pub source_control: u64,
+    #[serde(default)]
+    pub source_object: u64,
+}
+
+/// Bounded diagnostics using the known stack layout. These observations do not
+/// establish a model's runtime role or enable transformation/companion support.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StackModelsProbe {
+    /// Same statuses as StackProbe; 7 = unsupported layout. Entry statuses must
+    /// also be checked before using a model, skin or gear value.
+    pub read_status: u32,
+    pub layer_count: u32,
+    pub truncated: bool,
+    pub base: StackModelProbe,
+    pub layers: Vec<StackModelProbe>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StackModelProbe {
+    pub read_status: u32,
+    pub index: u32,
+    pub address: u64,
+    pub model_length: u32,
+    pub model: String,
+    pub skin: u32,
+    pub gear: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -206,5 +300,23 @@ mod tests {
         assert_eq!(Command::Stop.line(), "stop\n");
         assert_eq!(Command::Inspect.line(), "inspect\n");
         assert_eq!(Command::Form("LuxAir").line(), "form LuxAir\n");
+    }
+
+    #[test]
+    fn model_probe_preserves_truncation_and_entry_failure() {
+        let reply = HostReply::parse(
+            r#"{"event":"session","state":"active","stack_probe":{"schema_version":2,"sequence":1,"render_tid":10,"refresh_calls":0,"read_status":1,"begin":100,"end":1700,"capacity":1700,"stack_prefix_hex":"","layers_head_hex":"","layers_tail_hex":"","code":[],"models":{"read_status":2,"layer_count":10,"truncated":true,"base":{"read_status":1,"index":0,"address":24,"model_length":5,"model":"Quinn","skin":6,"gear":255},"layers":[{"read_status":2,"index":9,"address":1540,"model_length":10,"model":"","skin":0,"gear":0}]}}}"#,
+        )
+        .unwrap();
+        let probe = reply.stack_probe.unwrap();
+        let models = probe.models.unwrap();
+        assert!(models.truncated);
+        assert_eq!(models.layer_count, 10);
+        assert_eq!(models.base.model, "Quinn");
+        assert_eq!(models.base.skin, 6);
+        assert_eq!(models.layers[0].read_status, 2);
+        assert!(models.layers[0].model.is_empty());
+        let serialized = serde_json::to_string(&models).unwrap();
+        assert_eq!(serde_json::from_str::<StackModelsProbe>(&serialized).unwrap(), models);
     }
 }

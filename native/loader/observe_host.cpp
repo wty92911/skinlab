@@ -28,7 +28,7 @@ constexpr wchar_t game_image_name[]=L"League of Legends.exe";
 struct Check {std::string name;bool passed;};std::vector<Check> checks;
 SlObserveShared observation{};bool have_observation=false,game_mode=false,hook_removed=false;
 
-bool session_requested=false,code_probe_requested=false;
+bool session_requested=false,code_probe_requested=false,owner_code_probe_requested=false,owner_links_probe_requested=false,resource_probe_requested=false;
 uint32_t fixture_codec=0;
 std::string target_sha;uint32_t selected_pid=0;
 DWORD observer_integrity=0,target_integrity=0;
@@ -99,17 +99,76 @@ void write_startup() {
         <<",\"module_pinned\":"<<(observation.module_pinned?"true":"false")
         <<",\"collection_ms\":"<<observation.collection_ms<<",\"result_count\":"<<observation.result_count<<'}';
 }
-void write_code_probe(const SlCodeProbe (&codes)[SL_CODE_PROBES]) {
+void write_code_probe(const SlCodeProbe (&codes)[SL_CODE_PROBES],bool owner=false) {
     std::cout<<'[';
     const char* roles[]={"push","update","push_call_context","layer_destructor","gear_setter"};
     for(size_t i=0;i<SL_CODE_PROBES;++i) {
         if(i)std::cout<<',';
         const auto& code=codes[i];
-        const auto role=i<5?std::string(roles[i]):i<11?"stack_reference_"+std::to_string(i-5):i==11?"material_registry_getter":"swap_chain_context";
+        const char* resource_slots[]={"18","20","08","10","28","30","38","48","50"};
+        const char* resource_follows[]={"resource_notify20_callee","resource_notify28_tail","resource_notify18_callee","unused_12"};
+        const auto role=resource_probe_requested?(i<9?"resource_virtual_"+std::string(resource_slots[i]):std::string(resource_follows[i-9]))
+            :owner?(i==0?std::string("skin_source_entry"):i==1?std::string("skin_source_context"):"skin_source_tail_"+std::to_string(i-2))
+            :i<5?std::string(roles[i]):i<11?"stack_reference_"+std::to_string(i-5):i==11?"material_registry_getter":"swap_chain_context";
         std::cout<<"{\"role\":"<<std::quoted(role)<<",\"rva\":"<<code.rva
             <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(code.bytes,std::min<size_t>(code.size,sizeof(code.bytes))))<<'}';
     }
     std::cout<<']';
+}
+void write_stack_model(const SlStackModelProbe& probe) {
+    const std::string model(probe.model,std::find(probe.model,probe.model+sizeof(probe.model),0));
+    std::cout<<"{\"read_status\":"<<probe.read_status<<",\"index\":"<<probe.index
+        <<",\"address\":"<<probe.address<<",\"model_length\":"<<probe.model_length
+        <<",\"model\":"<<std::quoted(model)<<",\"skin\":"<<probe.skin<<",\"gear\":"<<probe.gear<<'}';
+}
+void write_stack_models(const SlStackModelsProbe& probe) {
+    std::cout<<"{\"read_status\":"<<probe.read_status<<",\"layer_count\":"<<probe.layer_count
+        <<",\"truncated\":"<<(probe.layer_count>probe.sampled_layers?"true":"false")<<",\"base\":";
+    write_stack_model(probe.base);std::cout<<",\"layers\":[";
+    for(uint32_t i=0;i<std::min<uint32_t>(probe.sampled_layers,SL_MODEL_PROBES);++i) {
+        if(i)std::cout<<',';
+        write_stack_model(probe.layers[i]);
+    }
+    std::cout<<"]}";
+}
+void write_minion_probe(const SlMinionProbe& probe) {
+    std::cout<<"{\"read_status\":"<<probe.read_status<<",\"slot_rva\":"<<probe.slot_rva
+        <<",\"context_rva\":"<<probe.context_rva<<",\"callee_rva\":"<<probe.callee_rva
+        <<",\"manager\":"<<probe.manager<<",\"player\":"<<probe.player<<",\"tries\":"<<probe.tries
+        <<",\"source_member\":"<<probe.source_member
+        <<",\"budget_exhausted\":"<<(probe.budget_exhausted?"true":"false")
+        <<",\"manager_prefix_hex\":"<<std::quoted(probe.read_status==1?sl_observe_hex(probe.manager_prefix,sizeof(probe.manager_prefix)):"")
+        <<",\"player_prefix_hex\":"<<std::quoted(sl_observe_hex(probe.player_prefix,std::min<size_t>(probe.player_size,sizeof(probe.player_prefix))))
+        <<",\"context_hex\":"<<std::quoted(sl_observe_hex(probe.context,std::min<size_t>(probe.context_size,sizeof(probe.context))))
+        <<",\"callee_hex\":"<<std::quoted(sl_observe_hex(probe.callee,std::min<size_t>(probe.callee_size,sizeof(probe.callee))))<<",\"arrays\":[";
+    for(uint32_t i=0;i<std::min<uint32_t>(probe.array_count,32);++i) {
+        if(i)std::cout<<',';
+        const auto& array=probe.arrays[i];
+        std::cout<<"{\"field_offset\":"<<array.field_offset<<",\"address\":"<<array.address
+            <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(array.bytes,std::min<size_t>(array.size,sizeof(array.bytes))))<<'}';
+    }
+    std::cout<<"],\"objects\":[";
+    for(uint32_t i=0;i<std::min<uint32_t>(probe.object_count,4);++i) {
+        if(i)std::cout<<',';
+        const auto& object=probe.objects[i];
+        const std::string model(object.model,std::find(object.model,object.model+sizeof(object.model),0));
+        std::cout<<"{\"read_status\":"<<object.read_status<<",\"address\":"<<object.address
+            <<",\"counted_member\":"<<(object.counted_member?"true":"false")
+            <<",\"source_status\":"<<object.source_status<<",\"source_strong\":"<<object.source_strong
+            <<",\"source_cell\":"<<object.source_cell<<",\"source_control\":"<<object.source_control<<",\"source_object\":"<<object.source_object
+            <<",\"model\":"<<std::quoted(model)<<",\"prefix_hex\":"
+            <<std::quoted(sl_observe_hex(object.prefix,std::min<size_t>(object.prefix_size,sizeof(object.prefix))))<<'}';
+    }
+    std::cout<<"],\"owner_candidate\":{\"role\":\"skin_source_candidate\",\"rva\":"<<probe.owner_candidate.rva
+        <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(probe.owner_candidate.bytes,std::min<size_t>(probe.owner_candidate.size,sizeof(probe.owner_candidate.bytes))))
+        <<"},\"owner_context\":{\"role\":\"skin_source_context\",\"rva\":"<<probe.owner_context.rva
+        <<",\"bytes_hex\":"<<std::quoted(sl_observe_hex(probe.owner_context.bytes,std::min<size_t>(probe.owner_context.size,sizeof(probe.owner_context.bytes))))<<"}}";
+}
+void write_resource_probe(const SlSkinResourceProbe& probe) {
+    std::cout<<"{\"read_status\":"<<probe.read_status<<",\"owner_member\":"<<probe.owner_member
+        <<",\"owner\":"<<probe.owner<<",\"table\":"<<probe.table<<",\"targets\":[";
+    for(size_t i=0;i<9;++i){if(i)std::cout<<',';std::cout<<probe.targets[i];}
+    std::cout<<"],\"cache_hex\":"<<std::quoted(probe.read_status==1?sl_observe_hex(probe.cache,sizeof(probe.cache)):"")<<'}';
 }
 void write_stack_probe(const SlStackProbe& probe) {
     std::cout<<"{\"schema_version\":"<<probe.schema_version<<",\"sequence\":"<<probe.sequence
@@ -121,7 +180,9 @@ void write_stack_probe(const SlStackProbe& probe) {
         <<",\"layers_head_hex\":"<<std::quoted(sl_observe_hex(probe.head,std::min<size_t>(probe.head_size,sizeof(probe.head))))
         <<",\"layers_tail_hex\":"<<std::quoted(sl_observe_hex(probe.tail,std::min<size_t>(probe.tail_size,sizeof(probe.tail))))
         <<",\"code\":";
-    write_code_probe(probe.code);std::cout<<'}';
+    write_code_probe(probe.code);std::cout<<",\"models\":";write_stack_models(probe.models);
+    std::cout<<",\"minions\":";write_minion_probe(probe.minions);
+    std::cout<<",\"resources\":";write_resource_probe(probe.resources);std::cout<<'}';
 }
 std::string text(const char (&value)[192]) {return std::string(value,std::find(value,value+192,0));}
 std::string sha256(HANDLE file) {
@@ -175,7 +236,7 @@ struct Host {
         selected_pid=pid;creation=sl_creation_time(process);os(creation!=0,"Read target creation identity");
         shared->magic=SL_OBSERVE_MAGIC;shared->version=SL_OBSERVE_VERSION;shared->struct_size=sizeof(*shared);
         shared->host_pid=GetCurrentProcessId();shared->target_pid=pid;shared->nonce=nonce;shared->creation_time=creation;
-        shared->request_session=session_requested?1:(code_probe_requested?2:0);
+        shared->request_session=session_requested?1:(resource_probe_requested?5:(owner_links_probe_requested?4:(owner_code_probe_requested?3:(code_probe_requested?2:0))));
         shared->fixture_codec=fixture_codec;
         if(fixture_owner) {
             window=fixture_owner->window;shared->window=reinterpret_cast<uintptr_t>(window);
@@ -307,6 +368,7 @@ struct Host {
             <<",\"model\":"<<std::quoted(std::string(shared->model_name,std::find(shared->model_name,shared->model_name+96,0)))
             <<",\"current_skin\":"<<shared->session_skin<<",\"pending\":"<<(shared->command_sequence!=shared->completed_sequence?"true":"false")
             <<",\"current_encoded_skin\":"<<shared->session_encoded_skin
+            <<",\"companions_available\":"<<(shared->companions_available?"true":"false")
             <<",\"module_resident\":true,\"frame_hook_retained\":true,\"render_tid\":"<<shared->render_tid
             <<",\"target_pid\":"<<pid<<",\"allowed_skins\":[";
         const auto* entry=sl_catalog_model(shared->model_name);
@@ -526,9 +588,11 @@ void output(const std::string& error) {
             std::cout<<'}';
         }
         std::cout<<"]";
-        if(code_probe_requested) {
+        if(code_probe_requested||owner_code_probe_requested||resource_probe_requested) {
             std::cout<<",\"stack_reference_count\":"<<observation.stack_probe.stack_reference_count;
-            std::cout<<",\"code_probe\":";write_code_probe(observation.stack_probe.code);
+            std::cout<<",\"code_probe\":";write_code_probe(observation.stack_probe.code,owner_code_probe_requested);
+            if(owner_links_probe_requested){std::cout<<",\"minions\":";write_minion_probe(observation.stack_probe.minions);}
+            if(resource_probe_requested){std::cout<<",\"resources\":";write_resource_probe(observation.stack_probe.resources);}
         }
         std::cout<<'}';
     }
@@ -542,19 +606,22 @@ int wmain(int argc,wchar_t** argv) {
     const bool fixture_session=argc==2&&(std::wstring(argv[1])==L"--fixture-session"||fixture_codec);
     const bool fixture_reconnect=argc==2&&std::wstring(argv[1])==L"--fixture-reconnect-test";
     session_requested=fixture_session||fixture_reconnect;
-    if((argc==5||(argc==6&&(std::wstring(argv[5])==L"--session"||std::wstring(argv[5])==L"--probe-code")))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {
+    if((argc==5||(argc==6&&(std::wstring(argv[5])==L"--session"||std::wstring(argv[5])==L"--probe-code"||std::wstring(argv[5])==L"--probe-owner-code"||std::wstring(argv[5])==L"--probe-owner-links"||std::wstring(argv[5])==L"--probe-skin-resources")))&&std::wstring(argv[1])==L"--observe-game"&&std::wstring(argv[4])==L"--accept-module-until-exit"&&sha_argument(argv[3])) {
         const std::wstring number=argv[2];
         if(!number.empty()&&number.size()<=10&&std::all_of(number.begin(),number.end(),[](wchar_t c){return c>=L'0'&&c<=L'9';})) {
             const auto wide=std::stoull(number);if(wide&&wide<=UINT32_MAX) {
                 pid=DWORD(wide);game_mode=true;
                 session_requested=argc==6&&std::wstring(argv[5])==L"--session";
                 code_probe_requested=argc==6&&std::wstring(argv[5])==L"--probe-code";
+                owner_links_probe_requested=argc==6&&std::wstring(argv[5])==L"--probe-owner-links";
+                owner_code_probe_requested=owner_links_probe_requested||(argc==6&&std::wstring(argv[5])==L"--probe-owner-code");
+                resource_probe_requested=argc==6&&std::wstring(argv[5])==L"--probe-skin-resources";
                 expected.assign(argv[3],argv[3]+64);
             }
         }
     }
     if(argc!=1&&!game_mode&&!fixture_session&&!fixture_reconnect) {
-        std::cerr<<"Usage: skinlab-observe-host.exe [--observe-game PID EXPECTED_DISK_SHA256 --accept-module-until-exit [--session|--probe-code]]\n";return 2;
+        std::cerr<<"Usage: skinlab-observe-host.exe [--observe-game PID EXPECTED_DISK_SHA256 --accept-module-until-exit [--session|--probe-code|--probe-owner-code|--probe-owner-links|--probe-skin-resources]]\n";return 2;
     }
     std::string error;
     try {

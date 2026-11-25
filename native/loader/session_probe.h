@@ -5,11 +5,33 @@ struct SessionProbeSites {
     uint32_t image_size=0;
     uint32_t stack_reference_count=0;
     uint32_t rvas[SL_CODE_PROBES]{};
+    uint32_t minion_slot=0,minion_context=0,minion_callee=0;
+    uint32_t owner_candidate=0,owner_context=0;
 };
 SessionProbeSites session_probe_sites(const skinlab::profile::Snapshot& image,
                                       const std::vector<skinlab::profile::Result>& results) {
     SessionProbeSites sites{};sites.image_base=image.module_base;sites.image_size=image.image_size;
     for(const auto& r:results)if(r.has_candidate) {
+        // Historical name retained in the recipe table. The original caller
+        // uses this return value as a skin source; its current semantics/ABI
+        // still need instruction evidence. Sample it, never call it here.
+        if(r.name=="gold_redirect_target") {
+            sites.owner_candidate=r.candidate.rva;
+            if(!r.matches.empty())sites.owner_context=r.matches[0]>=128?r.matches[0]-128:r.matches[0];
+        }
+        if(r.name=="minion_list") {
+            sites.minion_slot=r.candidate.rva;
+            if(!r.matches.empty()) {
+                const auto match=r.matches[0];sites.minion_context=match>=128?match-128:match;
+                uint8_t call[5]{};
+                if(match<sites.image_size&&sites.image_size-match>=12
+                   &&local_copy(sites.image_base+match+7,call,5)&&call[0]==0xe8) {
+                    int32_t displacement=0;std::memcpy(&displacement,call+1,4);
+                    const int64_t target=int64_t(match)+12+displacement;
+                    if(target>0&&target<sites.image_size&&sites.image_size-target>=1024)sites.minion_callee=uint32_t(target);
+                }
+            }
+        }
         if(r.name=="character_data_stack") {
             // Structural diagnostics only: LEA reg64,[base+stack], any register.
             // Keep the first six code contexts and the total hit count; neither
@@ -66,7 +88,7 @@ void collect_code_probe(const SessionProbeSites& sites,SlCodeProbe (&codes)[SL_C
 }
 void collect_stack_probe(const SlConfig& config,const SessionProbeSites& sites,
                          LONG sequence,uint32_t refresh_calls,SlStackProbe& out) {
-    out={};out.schema_version=1;out.sequence=uint32_t(sequence);
+    out={};out.schema_version=SL_STACK_PROBE_VERSION;out.sequence=uint32_t(sequence);
     out.stack_reference_count=sites.stack_reference_count;
     out.render_tid=GetCurrentThreadId();out.refresh_calls=refresh_calls;
     // The core's callback validates player identity before any object read.
@@ -113,5 +135,41 @@ void collect_stack_probe(const SlConfig& config,const SessionProbeSites& sites,
         out.read_status=4;out.head_size=out.tail_size=0;return;
     }
     if(!stable) {out.read_status=readable?5:2;out.head_size=out.tail_size=0;return;}
+    const uint64_t header[]={out.begin,out.end,out.capacity};
+    collect_stack_models(config,stack,header,out.models);
+    // Model/string reads extend the sampling interval. Recheck the original
+    // raw spans so the two representations cannot silently cross states.
+    readable=local_copy(stack,reread,sizeof(out.prefix));
+    stable=readable&&std::memcmp(reread,out.prefix,sizeof(out.prefix))==0;
+    if(stable&&count) {
+        readable=local_copy(uintptr_t(out.begin),reread,count);
+        stable=readable&&std::memcmp(reread,out.head,count)==0;
+        if(stable) {
+            readable=local_copy(uintptr_t(out.end-count),reread,count);
+            stable=readable&&std::memcmp(reread,out.tail,count)==0;
+        }
+    }
+    if(config.generation(config.context)!=config.expected_generation) {
+        out.read_status=4;out.head_size=out.tail_size=0;out.models={};out.models.read_status=4;return;
+    }
+    if(!stable) {
+        out.read_status=readable?5:2;out.head_size=out.tail_size=0;
+        out.models={};out.models.read_status=out.read_status;return;
+    }
+    if(sites.minion_slot&&sites.minion_context&&sites.minion_context<sites.image_size
+       &&sites.image_size-sites.minion_context>=1024)
+        collect_minion_probe(config,sites.image_base+sites.minion_slot,sites.minion_slot,
+            sites.image_base+sites.minion_context,sites.minion_context,
+            sites.minion_callee?sites.image_base+sites.minion_callee:0,sites.minion_callee,
+            out.models.base.read_status==1?out.models.base.model:"",out.minions);
+    auto candidate_code=[&](uint32_t rva,SlCodeProbe& code) {
+        code={};code.rva=rva;uint8_t again[sizeof(code.bytes)]{};
+        if(!rva||rva>=sites.image_size)return;
+        const auto size=std::min<uint32_t>(sizeof(code.bytes),sites.image_size-rva);
+        if(local_copy(sites.image_base+rva,code.bytes,size)&&local_copy(sites.image_base+rva,again,size)
+           &&!std::memcmp(code.bytes,again,size))code.size=size;
+    };
+    candidate_code(sites.owner_candidate,out.minions.owner_candidate);
+    candidate_code(sites.owner_context,out.minions.owner_context);
     out.read_status=1;
 }

@@ -10,6 +10,7 @@ struct GameSession:SessionBinding {
     OwnedStackLayer layer{};
     FormSkinSync form_skins{};
     SkinGearSync skin_gears{};
+    MinionSkinBinding summons{};
     bool gear_selected=false;
     SlStatus form_status=SL_OK;
     ~GameSession(){if(controller)CloseHandle(controller);}
@@ -44,11 +45,11 @@ struct GameSession:SessionBinding {
         skin_gears.end();return result;
     }
     SlStatus synchronize_form() {
-        if((!form_skins.enabled()&&!skin_gears.enabled())||form_status!=SL_OK)return form_status;
+        if((!form_skins.enabled()&&!skin_gears.enabled()&&!summons.ready)||form_status!=SL_OK)return form_status;
         SlState state{};state.struct_size=sizeof(state);
         auto result=api.state(core,&state);
         if(result!=SL_OK)return result;
-        if(!(state.flags&SL_STATE_ACTIVE)&&!gear_selected)return SL_OK;
+        if(!(state.flags&SL_STATE_ACTIVE)&&!gear_selected&&!summons.selected)return SL_OK;
         if(state.flags&SL_STATE_RECOVERY_REQUIRED)return SL_RECOVERY_REQUIRED;
         if(state.current_skin<0||uint32_t(state.current_skin)!=state.current_stack_skin)return SL_INCONSISTENT_STATE;
         const auto stack=reinterpret_cast<uintptr_t>(config.object_data)+config.layout.character_stack_offset;
@@ -60,6 +61,8 @@ struct GameSession:SessionBinding {
         // No per-frame refresh when the game has kept the selected skin.
         if(changed&&!refresh(this,reinterpret_cast<void*>(stack),1))result=SL_RECOVERY_REQUIRED;
         result=finish_gear(result);
+        if(result!=SL_OK)return result;
+        result=summons.synchronize(config);
         if(result!=SL_OK)return result;
         return config.generation(config.context)==config.expected_generation?SL_OK:SL_TARGET_CHANGED;
     }
@@ -103,6 +106,8 @@ struct GameSession:SessionBinding {
             p.layer.thread=GetCurrentThreadId();
             const auto stack=reinterpret_cast<uintptr_t>(p.config.object_data)+p.config.layout.character_stack_offset;
             if(result==SL_OK)result=p.skin_gears.initialize(p.config,stack);
+            if(result==SL_OK)result=p.summons.initialize(p.config);
+            out.companions_available=p.summons.ready?1:0;
             // Initialization has not applied anything; destroy this inactive
             // core without leaving a failed session holding an unused runtime.
             if(result!=SL_OK&&p.core)p.api.destroy(&p.core);
@@ -147,6 +152,11 @@ struct GameSession:SessionBinding {
             result=p.finish_gear(result);
             if(result==SL_OK) {
                 p.gear_selected=p.skin_gears.enabled();
+                result=p.summons.synchronize(p.config,false,true);
+                if(result==SL_OK)p.summons.selected=p.summons.ready;
+                else p.form_status=result=result==SL_TARGET_CHANGED?result:SL_RECOVERY_REQUIRED;
+            }
+            if(result==SL_OK) {
                 result=p.synchronize_form();
                 if(result!=SL_OK)p.form_status=result=result==SL_TARGET_CHANGED?result:SL_RECOVERY_REQUIRED;
             }
@@ -156,7 +166,11 @@ struct GameSession:SessionBinding {
             if(result==SL_OK)result=p.skin_gears.begin(p.config,stack,p.skin_gears.original_skin,true);
             if(result==SL_OK)result=p.api.restore(p.core);
             result=p.finish_gear(result);
-            if(result==SL_OK){p.form_status=SL_OK;p.gear_selected=false;}
+            if(result==SL_OK) {
+                result=p.summons.synchronize(p.config,true,true);
+                if(result!=SL_OK)p.form_status=result=result==SL_TARGET_CHANGED?result:SL_RECOVERY_REQUIRED;
+            }
+            if(result==SL_OK){p.form_status=SL_OK;p.gear_selected=false;p.summons.selected=false;}
         }
         else if(command==3) {
             SlState state{};state.struct_size=sizeof(state);
@@ -165,12 +179,16 @@ struct GameSession:SessionBinding {
             if(result==SL_OK)result=p.skin_gears.begin(p.config,stack,p.skin_gears.original_skin,true);
             if(result==SL_OK)result=p.api.restore(p.core);
             result=p.finish_gear(result);
-            if(result==SL_OK){p.form_status=SL_OK;p.gear_selected=false;}
+            if(result==SL_OK) {
+                result=p.summons.synchronize(p.config,true,true);
+                if(result!=SL_OK)p.form_status=result=result==SL_TARGET_CHANGED?result:SL_RECOVERY_REQUIRED;
+            }
+            if(result==SL_OK){p.form_status=SL_OK;p.gear_selected=false;p.summons.selected=false;}
             if(result==SL_OK&&p.api.state(p.core,&state)==SL_OK){out.session_skin=state.current_skin;out.session_encoded_skin=state.current_encoded_skin;}
             if(result==SL_OK)result=p.api.destroy(&p.core);
             if(result==SL_OK){p.finished=true;out.session_state=3;}
         } else if(command==4) {
-            out.stack_probe={};out.stack_probe.schema_version=1;out.stack_probe.sequence=uint32_t(sequence);
+            out.stack_probe={};out.stack_probe.schema_version=SL_STACK_PROBE_VERSION;out.stack_probe.sequence=uint32_t(sequence);
             out.stack_probe.render_tid=GetCurrentThreadId();out.stack_probe.refresh_calls=out.refresh_calls;
             SlState state{};state.struct_size=sizeof(state);
             result=p.api.state(p.core,&state);
@@ -199,7 +217,7 @@ struct GameSession:SessionBinding {
                 }
             }
         }
-        if(p.skin_gears.enabled()&&(result==SL_RECOVERY_REQUIRED||result==SL_TARGET_CHANGED))p.form_status=result;
+        if((p.skin_gears.enabled()||p.summons.ready)&&(result==SL_RECOVERY_REQUIRED||result==SL_TARGET_CHANGED))p.form_status=result;
         p.publish(result,sequence);
         if(disconnected&&result!=SL_OK) {
             // Keep recovery responsibility. Stop is retried only by an explicit
@@ -276,6 +294,7 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
             s->layer.destroy=reinterpret_cast<SlLayerDestroy>(image.module_base+s->probe_sites.rvas[3]);
         }
         s->slot=image.module_base+player.rva;s->player=out.player_address;s->update=image.module_base+update.rva;
+        s->resource_update.notifications=SkinResourceUpdate::admitted(image.module_base,image.image_size,update.rva);
         std::memcpy(s->model,out.model_name,strnlen(out.model_name,sizeof(s->model)-1));
         s->form_skins.champion=s->model;
         s->skin_gears.champion=s->model;
@@ -283,6 +302,8 @@ bool start_session(const std::shared_ptr<Work>& work,const skinlab::profile::Sna
         auto& cfg=s->config;cfg.struct_size=sizeof(cfg);cfg.abi_version=SL_ABI_VERSION;cfg.binding_kind=SL_BINDING_LEAGUE_EXPERIMENT;
         cfg.layout=s->layout;cfg.object_data=reinterpret_cast<void*>(s->player);cfg.object_size=s->layout.character_stack_offset+skinlab::league::kMinimumStackSkinExtent;
         cfg.context=s;cfg.expected_generation=s->player;cfg.generation=GameSession::generation;cfg.skin_allowed=GameSession::catalog;cfg.refresh=GameSession::refresh;
+        s->summons.prepare(image.module_base,image.image_size,s->probe_sites.minion_slot,s->probe_sites.owner_candidate,
+            s->model,work->shared->hook_tid,static_cast<SessionBinding*>(s),SessionBinding::refresh);
         const uintptr_t registry=reinterpret_cast<uintptr_t(__fastcall*)()>(image.module_base+getter.rva)();
         uintptr_t pointer=0;
         if(!local_copy(registry+swap.field_offset,&pointer,8))throw std::runtime_error("Cannot read session swapchain");
